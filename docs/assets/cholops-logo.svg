@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="384" viewBox="0 0 640 384" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">cholops logo</title>
+  <desc id="desc">An eye with a circular iris containing three squares along the main diagonal of an identity matrix.</desc>
+  <g stroke="#08265C">
+    <path d="M 44 192 Q 320 -100 596 192 Q 320 484 44 192 Z" stroke-width="22" stroke-linejoin="miter"/>
+    <circle cx="320" cy="192" r="116" stroke-width="10"/>
+  </g>
+  <g fill="#08265C">
+    <rect x="249" y="121" width="44" height="44"/>
+    <rect x="298" y="170" width="44" height="44"/>
+    <rect x="347" y="219" width="44" height="44"/>
+  </g>
+</svg>

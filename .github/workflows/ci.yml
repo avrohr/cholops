@@ -1,0 +1,51 @@
+name: CI
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+        x64: ["0", "1"]
+    env:
+      JAX_ENABLE_X64: ${{ matrix.x64 }}
+      JAX_PLATFORMS: cpu
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - run: uv sync --locked --all-groups
+      - run: uv lock --check
+      - run: uv run --locked ruff check .
+      - run: uv run --locked ruff format --check .
+      - run: uv run --locked python -m pytest
+      - run: uv build
+      - name: Check the installed wheel outside the checkout
+        run: |
+          uv venv "$RUNNER_TEMP/cholops-wheel"
+          uv pip install --python "$RUNNER_TEMP/cholops-wheel/bin/python" dist/*.whl
+          cp tests/wheel_smoke.py "$RUNNER_TEMP/wheel_smoke.py"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/cholops-wheel/bin/python" -I wheel_smoke.py
+  benchmark-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync --locked --all-groups
+      - run: >-
+          uv run --locked python -m benchmarks.run --backend cpu --dtype float64
+          --workload operations --operation replace --mode full_vjp
+          --implementations tensor naive recompute --n 8 --position first --samples 3
+          --memory-budget-gib 4 --output results/benchmarks/smoke

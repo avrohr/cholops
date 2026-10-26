@@ -1,0 +1,51 @@
+"""Principal-submatrix indexing without quadratic Cartesian index tensors."""
+
+import jax
+import jax.numpy as jnp
+
+from ._autodiff import tangent_map
+
+
+def _keep(n, index):
+    positions = jnp.arange(n - 1)
+    return positions + (positions >= index)
+
+
+def _insert(matrix, index, row, column, diagonal):
+    """Insert one row/column with linear-sized gather indices.
+
+    Used both for factor assembly and the transpose of principal extraction.
+    The inserted diagonal is supplied separately from the off-diagonal vectors.
+    """
+    n = matrix.shape[0] + 1
+    if n == 1:
+        return jnp.reshape(diagonal, (1, 1))
+    positions = jnp.arange(n)
+    source = jnp.clip(positions - (positions > index), 0, n - 2)
+    result = jnp.take(jnp.take(matrix, source, axis=0), source, axis=1)
+    result = jnp.where((positions == index)[:, None], row[source][None, :], result)
+    result = jnp.where((positions == index)[None, :], column[source][:, None], result)
+    return jnp.where(
+        (positions == index)[:, None] & (positions == index)[None, :],
+        diagonal,
+        result,
+    )
+
+
+@jax.custom_jvp
+def _principal(matrix, index):
+    keep = _keep(matrix.shape[0], index)
+    return jnp.take(jnp.take(matrix, keep, axis=0), keep, axis=1)
+
+
+def _principal_pullback(index, cotangent):
+    zeros = jnp.zeros((cotangent.shape[0],), dtype=cotangent.dtype)
+    return _insert(cotangent, index, zeros, zeros, jnp.zeros((), cotangent.dtype))
+
+
+@_principal.defjvp
+def _principal_jvp(primals, tangents):
+    matrix, index = primals
+    dmatrix, _ = tangents
+    result = _principal(matrix, index)
+    return result, tangent_map(_principal_pullback, index, dmatrix, result)

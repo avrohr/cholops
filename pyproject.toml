@@ -1,0 +1,65 @@
+[project]
+name = "cholops"
+version = "0.1.0"
+description = "Fast and differentiable Cholesky factor modifications in JAX."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["jax", "cholesky", "linear-algebra", "automatic-differentiation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+requires-python = ">=3.12"
+dependencies = ["jax==0.11.2"]
+
+[project.urls]
+Repository = "https://github.com/avrohr/cholops"
+Documentation = "https://github.com/avrohr/cholops/tree/main/docs"
+Issues = "https://github.com/avrohr/cholops/issues"
+
+[project.optional-dependencies]
+cuda13 = ["jax[cuda13]==0.11.2; sys_platform == 'linux'"]
+
+[build-system]
+requires = ["uv_build>=0.11.29,<0.14"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.12"]
+benchmark = ["matplotlib>=3.10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --durations=10"
+markers = [
+    "full: additional release and contributor checks (enable with --full)",
+    "gpu: GPU-specific release checks",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["cholops", "benchmarks"]
+
+[tool.uv.build-backend]
+source-exclude = ["**/.DS_Store", "results/**", "benchmarks/figures/**", "benchmarks/*.csv"]
+source-include = [
+    "uv.lock",
+    "docs/**",
+    "examples/**",
+    "tests/**",
+    "benchmarks/*.py",
+    "benchmarks/*.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "TESTING.md",
+    "ROADMAP.md",
+]
