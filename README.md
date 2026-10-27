@@ -11,8 +11,8 @@ object.
 
 ## Install
 
-From a checkout, use `pip install .`. On Linux with a compatible CUDA 13 driver,
-use `pip install ".[cuda13]"`. The initial release targets **JAX 0.11.2** and
+Install with `pip install cholops`. On Linux with a compatible CUDA 13 driver,
+use `pip install "cholops[cuda13]"`. The initial release targets **JAX 0.11.2** and
 Python 3.12 or newer.
 
 We recommend using float64; see [JAX's precision settings](https://docs.jax.dev/en/latest/101/default_dtypes.html).
