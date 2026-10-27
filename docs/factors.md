@@ -61,6 +61,7 @@ Each method returns a new `Cholesky` object and leaves the original unchanged.
 | Method | Effect and inputs |
 | --- | --- |
 | `append(k, kappa)` | Add a last row and column, with `k:(n,)` and scalar diagonal `kappa` |
+| `append_block(K, C)` | Add `r` last rows and columns, with `K:(n,r)` and symmetric `C:(r,r)` |
 | `delete(index)` | Remove one row and column, preserving the order of the remaining entries |
 | `replace(index, k, kappa)` | Replace a row and column at the same index, with `k:(n-1,)` and scalar diagonal `kappa` |
 | `delete_append(index, k, kappa)` | Delete a row and column and append the replacement last, with the same inputs as `replace` |
@@ -74,6 +75,11 @@ are keeping. Replacing `b` with `e` in `[a, b, c, d]` therefore uses `k` in the
 order `[a, c, d]`. The result has order `[a, e, c, d]` for `replace`, or
 `[a, c, d, e]` for `delete_append`. Subsequent inputs must follow that order.
 Deletion renumbers the remaining indices from zero.
+
+`append_block` preserves the existing lower factor and factors the new Schur
+complement. The block size is static, inferred from `C`; empty factors and
+zero-column blocks are supported. Its symmetry, differentiation and numerical
+behavior follow the [block tensor operation](tensors.md#block-append).
 
 `replace_last` keeps the leading factor and recomputes only the trailing block.
 This makes small trailing-block replacements efficient and avoids the downdate
@@ -175,6 +181,9 @@ For all supported methods, supply indices and vectors in logical order.
 replacement to the end of logical order, just as it does on `Cholesky`.
 Append adds a new last logical index, and delete renumbers the surviving logical
 indices from zero. The object updates its internal maps for each operation.
+For `append_block`, rows of `K` use existing logical order, while its columns
+and `C` use new-variable order. The new variables occupy logical indices
+`n, ..., n+r-1`; the previous physical ordering is unchanged.
 
 Both `from_matrix` and `from_factor` start with identical logical and physical
 ordering. Methods return new objects. JIT, batching, fixed-size scans and

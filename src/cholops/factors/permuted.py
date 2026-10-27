@@ -8,6 +8,7 @@ from jax import Array
 
 from ..tensors import (
     chol_append,
+    chol_append_block,
     chol_delete,
     chol_delete_append,
     chol_diag_update,
@@ -70,6 +71,29 @@ class PermutedCholesky:
         k = _vector(k, n, L, "k")
         result = chol_append(L, k[self.order], kappa)
         last = jnp.asarray([n], dtype=self.order.dtype)
+        return type(self)(
+            result,
+            jnp.concatenate((self.order, last)),
+            jnp.concatenate((self.inverse_order, last)),
+        )
+
+    def append_block(self, K: Array, C: Array) -> "PermutedCholesky":
+        """Append r variables last in logical order, returning size n+r.
+
+        K:(n,r) has rows in existing logical order and columns in new-variable
+        order. C:(r,r) follows the new-variable order and must be symmetric.
+        The target must be positive definite. r is static, inferred from C;
+        r=0 and empty factors are supported, with native first-order AD.
+        """
+        L = self.physical_factor
+        n = L.shape[0]
+        K, C = jnp.asarray(K), jnp.asarray(C)
+        if K.ndim != 2 or K.shape[0] != n:
+            raise ValueError("K must have shape (n,r)")
+        if K.dtype != L.dtype or C.dtype != L.dtype:
+            raise TypeError("L, K and C must have the same dtype")
+        result = chol_append_block(L, K[self.order], C)
+        last = jnp.arange(n, result.shape[0], dtype=self.order.dtype)
         return type(self)(
             result,
             jnp.concatenate((self.order, last)),

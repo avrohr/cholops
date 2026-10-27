@@ -22,6 +22,7 @@ from cholops import (
     Cholesky,
     PermutedCholesky,
     chol_append,
+    chol_append_block,
     chol_delete,
     chol_delete_append,
     chol_diag_update,
@@ -34,6 +35,7 @@ from cholops import (
 
 OPERATIONS = (
     "append",
+    "append_block",
     "delete",
     "replace",
     "delete_append",
@@ -137,10 +139,23 @@ def _add_operation_phases(
             functions = {"tensor": tensor, "recompute": reference}
             if group == "replace":
                 functions["naive"] = lambda L, p, i: naive_replace(L, i, *p)
+            if group == "append_block":
+                functions["sequential"] = lambda L, p, i: _sequential_append_block(
+                    L, *p
+                )
             fn, args = _transformed(
                 functions[name], raw_args, mode, argnums, _factor_loss
             )
             phases[f"{name}_{label}"] = _phase(fn, args, expected, label, name)
+
+
+def _sequential_append_block(L, K, C):
+    """Append each new variable with scalar bordering, in the same order."""
+    C = (C + C.T) / 2
+    for i in range(C.shape[0]):
+        k = jnp.concatenate((K[:, i], C[:i, i]))
+        L = chol_append(L, k, C[i, i])
+    return L
 
 
 def _operation(name, L, params, index):
@@ -154,6 +169,7 @@ def _operation(name, L, params, index):
         return functions[name](L, index, *params)
     functions = {
         "append": chol_append,
+        "append_block": chol_append_block,
         "replace_last": chol_replace_last,
         "rank1": chol_rank1,
         "rank1_positive": chol_rank1_positive,
@@ -170,6 +186,9 @@ def _reference(name, L, params, index):
     if name == "append":
         k, c = params
         A = jnp.block([[A, k[:, None]], [k[None, :], c.reshape(1, 1)]])
+    elif name == "append_block":
+        K, C = params
+        A = jnp.block([[A, K], [K.T, (C + C.T) / 2]])
     elif name == "delete":
         A = A[keep[:, None], keep[None, :]]
     elif name == "delete_append":
@@ -213,11 +232,15 @@ def operations(
     L = cholesky(A)
     k, c = scale * (X @ new), 1 + scale * jnp.vdot(new, new)
     u = jnp.sin(jnp.arange(n, dtype=dtype) + 0.3) / jnp.sqrt(n)
-    # Use four replacement columns, or the whole matrix in smaller smoke cases.
+    # Use four block columns, or n columns in smaller smoke cases.
     r = min(4, n)
     tail = incoming[:r]
     params = {
         "append": (k, c),
+        "append_block": (
+            scale * X @ tail.T,
+            jnp.eye(r, dtype=dtype) + scale * tail @ tail.T,
+        ),
         "delete": (),
         "replace": (k[keep_indices(n, index)], c),
         "delete_append": (k[keep_indices(n, index)], c),

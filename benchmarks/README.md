@@ -193,6 +193,28 @@ uv run --locked python -m benchmarks.run --backend cpu --dtype float64 \
 This checks execution and output files. Use the declared campaign sizes for
 performance comparisons. Add `--dump-hlo` when profiling an individual case.
 
+## Block append comparison
+
+Block append is available as an opt-in operation without changing the saved
+six-operation campaign above or its default plan. It appends four variables
+(`min(4, n)` in small smoke cases) and compares the block solve with dense
+recomputation and, optionally, repeated scalar `chol_append` calls:
+
+```sh
+uv run --locked python -m benchmarks.run --backend cpu --dtype float64 \
+  --workload operations --operation append_block --n 256 --position first \
+  --implementations tensor sequential recompute --samples 15 \
+  --memory-budget-gib 4 --output results/benchmarks/block-append
+```
+
+Omitting `--mode` runs forward, value-plus-gradient and JVP comparisons. All
+implementations receive the same existing factor, `K` and `C`; the sequential
+baseline uses the symmetric part of `C` so its tangent convention matches the
+block and dense calculations. It unrolls the shape-changing scalar calls.
+Compilation, first call, warm samples and accuracy diagnostics use the same
+runner and are saved separately. No block-append GPU results are included in
+the published H100 tables.
+
 ## Additional workloads
 
 The campaign also measures:

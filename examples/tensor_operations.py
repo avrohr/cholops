@@ -2,7 +2,7 @@
 
 The two replacement functions describe the same new variables but return
 factors in different orders. This example solves both systems and translates
-the answers into the same order for comparison.
+the answers into the same order for comparison, then appends a block of variables.
 
 Run: JAX_ENABLE_X64=1 uv run --locked python examples/tensor_operations.py
 """
@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.scipy.linalg import solve_triangular
 
-from cholops import chol_delete_append, chol_replace, cholesky
+from cholops import chol_append_block, chol_delete_append, chol_replace, cholesky
 
 
 def solve(lower, rhs):
@@ -79,6 +79,25 @@ def main():
     np.testing.assert_allclose(
         restored_solution, solution, rtol=tolerance, atol=tolerance
     )
+
+    # Append [e, f] to the original [a, b, c, d] factor in one block.
+    cross_block = jnp.array([[0.1, 0.2], [0.2, -0.1], [0.1, 0.05], [0.0, 0.1]])
+    new_covariance = jnp.array([[1.2, 0.15], [0.15, 1.0]])
+    expanded = chol_append_block(lower, cross_block, new_covariance)
+    target = jnp.block([[covariance, cross_block], [cross_block.T, new_covariance]])
+    np.testing.assert_array_equal(expanded[:4, :4], lower)
+    np.testing.assert_allclose(
+        expanded, jnp.linalg.cholesky(target), rtol=tolerance, atol=tolerance
+    )
+    expanded_rhs = jnp.concatenate((rhs, jnp.array([0.1, -0.2])))
+    expanded_solution = solve(expanded, expanded_rhs)
+    np.testing.assert_allclose(
+        expanded_solution,
+        jnp.linalg.solve(target, expanded_rhs),
+        rtol=tolerance,
+        atol=tolerance,
+    )
+    print("Block append solution in [a, b, c, d, e, f] order:", expanded_solution)
 
 
 if __name__ == "__main__":

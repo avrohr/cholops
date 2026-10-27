@@ -13,6 +13,7 @@
 
 ## Possible extensions
 
-- [ ] Block append and deletion.
+- [x] Block append.
+- [ ] Block deletion.
 - [ ] Rank-k updates.
 - [ ] Faster signed updates and downdates.

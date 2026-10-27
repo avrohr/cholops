@@ -8,7 +8,7 @@ from jax.scipy.linalg import solve_triangular
 from ._autodiff import tangent_map
 from ._indexing import _insert, _keep, _principal
 from ._validation import _factor, _index, _scalar, _vector
-from .append import _append
+from .append import _append, _append_block
 from .rank_one import _backward_rhs, _exclusive_prefix, _update_bwd, _update_fwd
 
 
@@ -198,15 +198,4 @@ def chol_replace_last(L: Array, K: Array, C: Array) -> Array:
         raise ValueError("K must have shape (n-r,r), with 0 <= r <= n")
     if K.dtype != L.dtype or C.dtype != L.dtype:
         raise TypeError("L, K and C must have the same dtype")
-    if r == 0:
-        return L
-    leading = L[:m, :m]
-    V = solve_triangular(leading, K, lower=True) if m else K
-    trailing = jnp.linalg.cholesky(C - V.T @ V)
-    return jnp.concatenate(
-        (
-            jnp.concatenate((leading, jnp.zeros_like(K)), axis=1),
-            jnp.concatenate((V.T, trailing), axis=1),
-        ),
-        axis=0,
-    )
+    return _append_block(L[:m, :m], K, C)

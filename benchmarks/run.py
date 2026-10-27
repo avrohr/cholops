@@ -38,6 +38,7 @@ def arguments():
         "--operation",
         choices=[
             "append",
+            "append_block",
             "delete",
             "replace",
             "delete_append",
@@ -71,6 +72,8 @@ def arguments():
     )
     if args.operation == "replace":
         allowed.add("naive")
+    if args.operation == "append_block":
+        allowed.add("sequential")
     if args.implementations is not None and (
         not set(args.implementations) <= allowed
         or "recompute" not in args.implementations

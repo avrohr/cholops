@@ -88,6 +88,7 @@ imported directly from `cholops`:
 | --- | --- |
 | `cholesky` | Factor a positive-definite matrix. |
 | `chol_append` | Append one covariance row and column. |
+| `chol_append_block` | Append a block of covariance rows and columns. |
 | `chol_delete` | Delete one covariance row and column, preserving survivor order. |
 | `chol_replace` | Replace one covariance row and column at the same index. |
 | `chol_delete_append` | Delete one variable and append its replacement last. |

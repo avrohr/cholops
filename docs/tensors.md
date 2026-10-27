@@ -21,6 +21,7 @@ Use `jax.vmap` for batches of modifications.
 | --- | --- | --- |
 | `cholesky(A)` | Lower factor of the symmetric part of `A`; accepts `(...,n,n)` | JVP and reverse |
 | `chol_append(L, k, kappa)` | Factor of `[[A,k],[k.T,kappa]]`; `k:(n,)`, scalar `kappa`; output `(n+1,n+1)` | JVP and reverse |
+| `chol_append_block(L, K, C)` | Factor of `[[A,K],[K.T,C]]`; `K:(n,r)`, symmetric `C:(r,r)`; output `(n+r,n+r)` | JVP and reverse |
 | `chol_delete(L, index)` | Remove covariance row/column `index`; survivor order preserved; output `(n-1,n-1)` | JVP and reverse |
 | `chol_replace(L, index, k, kappa)` | Replace row/column at the same index; `k:(n-1,)` in survivor order | JVP and reverse |
 | `chol_delete_append(L, index, k, kappa)` | Delete `index`, append its replacement last; same inputs as `chol_replace` | JVP and reverse |
@@ -39,6 +40,24 @@ validated for general use. Indices and permutations have no continuous derivativ
 negative weights; its recurrence can be slower than dense recomputation on a GPU. No input-dependent backend switch occurs. A zero
 signed weight leaves the factor unchanged but generally has a nonzero
 weight derivative.
+
+## Block append
+
+`chol_append_block` adds `r` variables after the existing `n` variables. Rows of
+`K` follow the existing factor order; its columns and both axes of `C` follow
+the new-variable order. It preserves the leading lower factor exactly, solves
+`V = solve(L, K)`, and factors the Schur complement `C - V.T @ V`. This needs
+`O(n^2*r + n*r^2 + r^3)` arithmetic, plus writing the enlarged factor.
+
+`r=0` returns the lower input; `n=0` factors `C`. A one-column block is the
+block form of `chol_append`. The block uses native JAX first-order derivatives,
+including JAX's symmetric-input Cholesky convention for `C` and its tangents.
+The Schur complement must be positive definite: no jitter or clipping is added,
+and a non-SPD complement gives NaNs in the trailing factor. Small conditional
+variances can lose relative accuracy in the subtraction.
+
+The [direct tensor example](../examples/tensor_operations.py) appends two
+variables and compares the result with a dense factorization.
 
 ## Replacement ordering
 

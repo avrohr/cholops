@@ -6,7 +6,7 @@ Operations support JIT and vmap. Differentiation is supported only through
 first order, in both forward and reverse mode.
 """
 
-from .append import chol_append
+from .append import chol_append, chol_append_block
 from .deletion import chol_delete, chol_delete_append
 from .factorization import cholesky
 from .rank_one import chol_diag_update, chol_rank1, chol_rank1_positive
@@ -15,6 +15,7 @@ from .replacement import chol_replace, chol_replace_last
 __all__ = [
     "cholesky",
     "chol_append",
+    "chol_append_block",
     "chol_delete",
     "chol_diag_update",
     "chol_rank1",

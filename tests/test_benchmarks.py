@@ -113,6 +113,59 @@ def test_naive_replacement_comparator(position, mode):
     )
 
 
+@pytest.mark.full
+@pytest.mark.parametrize("mode", MODES)
+def test_block_append_comparators(mode):
+    dtype = "float64" if jax.config.x64_enabled else "float32"
+    phases = operations(
+        7,
+        "first",
+        dtype,
+        operation="append_block",
+        modes=(mode,),
+        implementations=("tensor", "sequential", "recompute"),
+    )
+    assert {phase["implementation"] for phase in phases.values()} == {
+        "tensor",
+        "sequential",
+        "recompute",
+    }
+    check_phases(phases)
+
+
+def test_block_append_runner_accepts_sequential_baseline(monkeypatch, tmp_path):
+    from benchmarks.run import arguments
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "benchmarks.run",
+            "--backend",
+            "cpu",
+            "--dtype",
+            "float32",
+            "--n",
+            "8",
+            "--position",
+            "first",
+            "--workload",
+            "operations",
+            "--operation",
+            "append_block",
+            "--implementations",
+            "tensor",
+            "sequential",
+            "recompute",
+            "--output",
+            str(tmp_path),
+        ],
+    )
+    args = arguments()
+    assert args.operation == "append_block"
+    assert args.implementations == ["tensor", "sequential", "recompute"]
+
+
 @pytest.fixture
 def benchmark_output(tmp_path):
     # Exercise the real runner and plot reader, with a deliberately poor

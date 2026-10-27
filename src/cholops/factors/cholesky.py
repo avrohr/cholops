@@ -8,6 +8,7 @@ from jax import Array
 
 from ..tensors import (
     chol_append,
+    chol_append_block,
     chol_delete,
     chol_delete_append,
     chol_diag_update,
@@ -73,6 +74,15 @@ class Cholesky:
         The target covariance must be positive definite.
         """
         return type(self)(chol_append(self.factor, k, kappa))
+
+    def append_block(self, K: Array, C: Array) -> "Cholesky":
+        """Append r variables with K:(n,r), C:(r,r), returning size n+r.
+
+        C must be symmetric and the target covariance positive definite.
+        r is static, inferred from C; r=0 and empty factors are supported.
+        Uses native JAX first-order differentiation of the Schur complement.
+        """
+        return type(self)(chol_append_block(self.factor, K, C))
 
     def delete(self, index: Array | int) -> "Cholesky":
         """Delete one variable, preserving survivor order; return size n-1.

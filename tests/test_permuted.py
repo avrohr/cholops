@@ -144,6 +144,9 @@ def dense_modification(A, method, index, args):
     if method in ("append", "delete_append"):
         k, c = args
         return jnp.block([[A, k[:, None]], [k[None, :], c.reshape(1, 1)]])
+    if method == "append_block":
+        K, C = args
+        return jnp.block([[A, K], [K.T, (C + C.T) / 2]])
     if method == "diag_update":
         return A.at[index, index].add(args[0])
     u = args[0]
@@ -158,6 +161,11 @@ def modification_fixture(method, weight=0.2):
     scalar = jnp.asarray(weight, DTYPE)
     if method in ("append", "delete_append"):
         args = (vector if method == "append" else vector[:-1], jnp.asarray(1.5, DTYPE))
+    elif method == "append_block":
+        args = (
+            jnp.outer(vector, jnp.array([0.5, -0.3], DTYPE)),
+            jnp.array([[1.5, 0.1], [0.1, 1.2]], DTYPE),
+        )
     elif method == "delete":
         args = ()
     elif method == "diag_update":
@@ -177,7 +185,16 @@ def check_permutations(state):
 
 @pytest.mark.parametrize(
     "method,weight",
-    [(name, 1.0) for name in ("append", "delete", "delete_append", "rank1_positive")]
+    [
+        (name, 1.0)
+        for name in (
+            "append",
+            "append_block",
+            "delete",
+            "delete_append",
+            "rank1_positive",
+        )
+    ]
     + [
         (name, weight)
         for name in ("rank1", "diag_update")
@@ -229,7 +246,15 @@ def test_modifications_after_reordering_and_all_input_derivatives(method, weight
 
 @pytest.mark.parametrize(
     "method",
-    ["append", "delete", "delete_append", "diag_update", "rank1", "rank1_positive"],
+    [
+        "append",
+        "append_block",
+        "delete",
+        "delete_append",
+        "diag_update",
+        "rank1",
+        "rank1_positive",
+    ],
 )
 def test_batched_modifications_with_runtime_indices(method):
     A, args = modification_fixture(method)
@@ -254,6 +279,53 @@ def test_batched_modifications_with_runtime_indices(method):
         jax.jit(jax.grad(lambda a: jnp.sum(actual(states, a))))(args),
         jax.jit(jax.grad(lambda a: jnp.sum(reference(matrices, a))))(args),
     )
+
+
+@pytest.mark.parametrize("rows", [4, 6])
+def test_append_block_validates_rows_before_reordering(rows):
+    A, _ = modification_fixture("append_block")
+    state = reordered_state(A)
+    with pytest.raises(ValueError, match="K must have shape"):
+        state.append_block(jnp.zeros((rows, 2), DTYPE), jnp.eye(2, dtype=DTYPE))
+
+
+@pytest.mark.parametrize("argument", ["K", "C"])
+@pytest.mark.parametrize(
+    "dtype", [jnp.float16] + ([jnp.float32] if jax.config.x64_enabled else [])
+)
+def test_append_block_validates_dtype_before_reordering(argument, dtype):
+    A, (K, C) = modification_fixture("append_block")
+    state = reordered_state(A)
+    K = K.astype(dtype) if argument == "K" else K
+    C = C.astype(dtype) if argument == "C" else C
+
+    def rejected(K, C):
+        # Catch inside the trace so work emitted before rejection stays visible.
+        with pytest.raises(TypeError, match="L, K and C must have the same dtype"):
+            state.append_block(K, C)
+        return K
+
+    traced = jax.make_jaxpr(rejected)(K, C)
+    assert all(eqn.primitive.name != "gather" for eqn in traced.jaxpr.eqns)
+
+
+@pytest.mark.parametrize("n,r", [(0, 0), (0, 2), (5, 0), (5, 1), (5, 3)])
+def test_append_block_extends_maps_and_preserves_leading_factor(n, r):
+    if n:
+        A, _ = modification_fixture("append_block")
+        state = reordered_state(A)
+    else:
+        A = jnp.empty((0, 0), DTYPE)
+        state = PermutedCholesky.from_factor(A)
+    K = jnp.full((n, r), 0.1, DTYPE)
+    C = jnp.eye(r, dtype=DTYPE)
+    result = jax.jit(lambda s, K, C: s.append_block(K, C))(state, K, C)
+    check_permutations(result)
+    np.testing.assert_array_equal(result.order[:n], state.order)
+    np.testing.assert_array_equal(result.inverse_order[:n], state.inverse_order)
+    np.testing.assert_array_equal(result.order[n:], np.arange(n, n + r))
+    np.testing.assert_array_equal(result.physical_factor[:n, :n], state.physical_factor)
+    close(logical_matrix(result), jnp.block([[A, K], [K.T, C]]))
 
 
 def test_size_changes_and_repeated_mixed_updates():

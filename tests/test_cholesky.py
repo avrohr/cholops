@@ -27,6 +27,9 @@ def modified_matrix(A, method, args):
     if method == "append":
         k, c = args
         return jnp.block([[A, k[:, None]], [k[None, :], c.reshape(1, 1)]])
+    if method == "append_block":
+        K, C = args
+        return jnp.block([[A, K], [K.T, (C + C.T) / 2]])
     if method == "delete":
         return A[keep[:, None], keep[None, :]]
     if method in ("replace", "delete_append"):
@@ -57,6 +60,8 @@ def parameters(method, weight):
     c = jnp.asarray(1.5, DTYPE)
     if method == "append":
         return k, c
+    if method == "append_block":
+        return jnp.outer(k, k[:2]), jnp.array([[1.5, 0.1], [0.1, 1.2]], DTYPE)
     if method in ("replace", "delete_append"):
         return k[:-1], c
     if method == "delete":
@@ -74,6 +79,7 @@ CASES = [
     (name, 1.0)
     for name in (
         "append",
+        "append_block",
         "delete",
         "replace",
         "delete_append",

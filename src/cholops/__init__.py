@@ -3,6 +3,7 @@
 from .factors import Cholesky, PermutedCholesky
 from .tensors import (
     chol_append,
+    chol_append_block,
     chol_delete,
     chol_delete_append,
     chol_diag_update,
@@ -18,6 +19,7 @@ __all__ = [
     "PermutedCholesky",
     "cholesky",
     "chol_append",
+    "chol_append_block",
     "chol_delete",
     "chol_diag_update",
     "chol_rank1",

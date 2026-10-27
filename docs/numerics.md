@@ -76,6 +76,11 @@ trailing factor, unless the variable is already last. Avoiding this downdate is
 one reason to use [PermutedCholesky](factors.md#permutedcholesky) for repeated
 replacements. Replacing a trailing block with `replace_last` also avoids this
 downdate by keeping the leading factor and factoring only the new remainder.
+Block append uses the same bordering calculation: solve `V = solve(L, K)` and
+factor `C - V.T @ V`, preserving the existing lower factor. Both block operations
+use native JAX first-order differentiation and the symmetric-input convention
+for `C`. Their Schur subtraction remains sensitive to small conditional
+variances; neither operation adds jitter or changes precision.
 
 `chol_rank1` uses a separate algorithm because it must handle positive, negative
 and zero weights. The weight enters the calculation directly, so its derivative
