@@ -67,12 +67,15 @@ class Cholesky:
         """Inverse quadratic form: scalar for (n,), per column for (n,r)."""
         return _quadratic(self.factor, _rhs(self.factor, rhs))
 
-    def append(self, k: Array, kappa: Array | float) -> "Cholesky":
-        """Append covariances k:(n,) and diagonal kappa; return size n+1.
+    def append(self, K: Array, C: Array) -> "Cholesky":
+        """Append r rows and columns with K:(n,r) and C:(r,r).
 
-        The target covariance must be positive definite.
+        The resulting matrix is [[A, K], [K.T, C]], where A is the
+        matrix represented by this factor. C must be symmetric and
+        the resulting matrix positive definite.
+        Use (n,1) and (1,1) arrays for a single row and column.
         """
-        return type(self)(chol_append(self.factor, k, kappa))
+        return type(self)(chol_append(self.factor, K, C))
 
     def delete(self, index: Array | int) -> "Cholesky":
         """Delete one variable, preserving survivor order; return size n-1.
@@ -106,7 +109,7 @@ class Cholesky:
     def replace_last(self, K: Array, C: Array) -> "Cholesky":
         """Replace the last r variables with K:(n-r,r), C:(r,r), keeping size n.
 
-        Uses a Schur complement with native JAX Cholesky differentiation.
+        Uses a Schur complement with the symmetry-preserving Cholesky reverse rule.
         C must be symmetric and the target must be positive definite.
         r is static, inferred from C; r=0 and r=n are supported.
         """

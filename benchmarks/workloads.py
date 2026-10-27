@@ -168,8 +168,8 @@ def _reference(name, L, params, index):
     A = L @ L.T
     keep = keep_indices(L.shape[0], index)
     if name == "append":
-        k, c = params
-        A = jnp.block([[A, k[:, None]], [k[None, :], c.reshape(1, 1)]])
+        K, C = params
+        A = jnp.block([[A, K], [K.T, (C + C.T) / 2]])
     elif name == "delete":
         A = A[keep[:, None], keep[None, :]]
     elif name == "delete_append":
@@ -217,7 +217,7 @@ def operations(
     r = min(4, n)
     tail = incoming[:r]
     params = {
-        "append": (k, c),
+        "append": (k[:, None], c.reshape(1, 1)),
         "delete": (),
         "replace": (k[keep_indices(n, index)], c),
         "delete_append": (k[keep_indices(n, index)], c),

@@ -105,7 +105,10 @@ def test_append(n):
     L = factor(n)
     k = jnp.linspace(-0.3, 0.3, n)
     kappa = jnp.asarray(2.0)
-    assert_factor(jax.jit(chol_append)(L, k, kappa), append_matrix(matrix(L), k, kappa))
+    assert_factor(
+        jax.jit(chol_append)(L, k[:, None], kappa.reshape(1, 1)),
+        append_matrix(matrix(L), k, kappa),
+    )
 
 
 def test_singleton_and_empty():
@@ -182,11 +185,11 @@ def derivative_case(name):
         def reference(factor_input, d):
             return jnp.linalg.cholesky(matrix(factor_input).at[2, 2].add(d))
     elif name == "append":
-        args = L, k, jnp.asarray(2.0)
+        args = L, k[:, None], jnp.asarray([[2.0]])
         operation = chol_append
 
         def reference(factor_input, k, c):
-            return jnp.linalg.cholesky(append_matrix(matrix(factor_input), k, c))
+            return jnp.linalg.cholesky(jnp.block([[matrix(factor_input), k], [k.T, c]]))
     elif name == "delete":
         args = (L,)
 
@@ -340,7 +343,7 @@ def test_non_spd_and_invalid_data_are_visible_under_jit_and_vmap():
     )
     assert np.isfinite(result[0]).all()
     assert np.isnan(result[1:]).all()
-    assert np.isnan(jax.jit(chol_append)(L, jnp.ones(3), 1.0)).all()
+    assert np.isnan(jax.jit(chol_append)(L, jnp.ones((3, 1)), jnp.ones((1, 1)))).all()
     assert np.isnan(jax.jit(chol_diag_update)(L, jnp.asarray(1), -2.0)).all()
     assert not np.isfinite(jax.jit(chol_delete_append)(L, 1, jnp.ones(2), 0.0)).all()
     assert np.isnan(jax.jit(chol_rank1)(L, u.at[0].set(jnp.inf), 0.0)).all()

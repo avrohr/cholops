@@ -141,7 +141,10 @@ def dense_modification(A, method, index, args):
         A = A[keep[:, None], keep[None, :]]
         if method == "delete":
             return A
-    if method in ("append", "delete_append"):
+    if method == "append":
+        K, C = args
+        return jnp.block([[A, K], [K.T, (C + C.T) / 2]])
+    if method == "delete_append":
         k, c = args
         return jnp.block([[A, k[:, None]], [k[None, :], c.reshape(1, 1)]])
     if method == "diag_update":
@@ -156,8 +159,13 @@ def modification_fixture(method, weight=0.2):
     A = jnp.eye(5, dtype=DTYPE) + X @ X.T
     vector = jnp.linspace(-0.15, 0.2, 5, dtype=DTYPE)
     scalar = jnp.asarray(weight, DTYPE)
-    if method in ("append", "delete_append"):
-        args = (vector if method == "append" else vector[:-1], jnp.asarray(1.5, DTYPE))
+    if method == "append":
+        args = (
+            jnp.stack((vector, -vector / 2), axis=1),
+            jnp.array([[1.5, 0.1], [0.1, 1.2]], DTYPE),
+        )
+    elif method == "delete_append":
+        args = (vector[:-1], jnp.asarray(1.5, DTYPE))
     elif method == "delete":
         args = ()
     elif method == "diag_update":
@@ -271,13 +279,17 @@ def test_size_changes_and_repeated_mixed_updates():
     empty_vector = jnp.empty((0,), DTYPE)
     state = state.rank1(empty_vector, -0.2).rank1_positive(empty_vector)
     singleton = jax.jit(
-        lambda s: s.append(empty_vector, 2.0).delete_append(0, empty_vector, 3.0)
+        lambda s: s.append(
+            empty_vector[:, None], jnp.array([[2.0]], DTYPE)
+        ).delete_append(0, empty_vector, 3.0)
     )(state)
     check_permutations(singleton)
     close(logical_matrix(singleton), jnp.asarray([[3.0]], DTYPE))
     for diagonal in (1.5, 2.0, 2.5):
         k = jnp.full((A.shape[0],), 0.1, DTYPE)
-        state = jax.jit(lambda s, k, c: s.append(k, c))(state, k, diagonal)
+        state = jax.jit(lambda s, k, c: s.append(k, c))(
+            state, k[:, None], jnp.array([[diagonal]], DTYPE)
+        )
         A = jnp.block([[A, k[:, None]], [k[None, :], jnp.asarray([[diagonal]], DTYPE)]])
         check_permutations(state)
         close(logical_matrix(state), A)

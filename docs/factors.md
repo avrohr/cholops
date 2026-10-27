@@ -60,7 +60,7 @@ Each method returns a new `Cholesky` object and leaves the original unchanged.
 
 | Method | Effect and inputs |
 | --- | --- |
-| `append(k, kappa)` | Add a last row and column, with `k:(n,)` and scalar diagonal `kappa` |
+| `append(K, C)` | Add `r` rows and columns, with `K:(n,r)` and symmetric `C:(r,r)` |
 | `delete(index)` | Remove one row and column, preserving the order of the remaining entries |
 | `replace(index, k, kappa)` | Replace a row and column at the same index, with `k:(n-1,)` and scalar diagonal `kappa` |
 | `delete_append(index, k, kappa)` | Delete a row and column and append the replacement last, with the same inputs as `replace` |
@@ -68,6 +68,9 @@ Each method returns a new `Cholesky` object and leaves the original unchanged.
 | `diag_update(index, delta)` | Add signed `delta` to one matrix diagonal entry |
 | `rank1(u, alpha=1.0)` | Add `alpha * outer(u,u)`, with `u:(n,)` and signed weight `alpha` |
 | `rank1_positive(u)` | Add `outer(u,u)` using the optimized positive-update algorithm |
+
+`append` always takes block-shaped arrays, including `(n,1)` and `(1,1)`
+for one variable. The rows of `K` follow the existing variable order.
 
 For `replace` and `delete_append`, supply `k` in the order of the entries you
 are keeping. Replacing `b` with `e` in `[a, b, c, d]` therefore uses `k` in the
@@ -84,7 +87,7 @@ to the weight is generally nonzero even at zero. Use `rank1_positive` when you
 only need to add `outer(u,u)`.
 
 ```python
-expanded = factor.append(jnp.array([0.1, 0.2, 0.1]), 1.0)
+expanded = factor.append(jnp.array([[0.1], [0.2], [0.1]]), jnp.array([[1.0]]))
 reduced = expanded.delete(1)  # Order is now [0, 2, appended].
 updated = factor.rank1_positive(jnp.array([0.1, -0.2, 0.1]))
 downdated = updated.rank1(jnp.array([0.1, -0.2, 0.1]), alpha=-0.5)
@@ -155,7 +158,7 @@ managed = PermutedCholesky.from_matrix(K)
 managed = managed.replace(1, jnp.array([0.2, 0.1]), 1.2)
 alpha = managed.solve(y)  # y and alpha still follow logical order [0, 1, 2].
 
-expanded = managed.append(jnp.array([0.1, 0.2, 0.1]), 1.0)
+expanded = managed.append(jnp.array([[0.1], [0.2], [0.1]]), jnp.array([[1.0]]))
 updated = managed.rank1_positive(jnp.array([0.1, -0.2, 0.1]))
 ```
 

@@ -25,8 +25,8 @@ def fixture():
 def modified_matrix(A, method, args):
     keep = jnp.array([0, 1, 3, 4])
     if method == "append":
-        k, c = args
-        return jnp.block([[A, k[:, None]], [k[None, :], c.reshape(1, 1)]])
+        K, C = args
+        return jnp.block([[A, K], [K.T, (C + C.T) / 2]])
     if method == "delete":
         return A[keep[:, None], keep[None, :]]
     if method in ("replace", "delete_append"):
@@ -56,7 +56,9 @@ def parameters(method, weight):
     k = jnp.linspace(0.1, 0.2, 5, dtype=DTYPE)
     c = jnp.asarray(1.5, DTYPE)
     if method == "append":
-        return k, c
+        return jnp.stack((k, -k / 2), axis=1), jnp.array(
+            [[1.5, 0.1], [0.1, 1.2]], DTYPE
+        )
     if method in ("replace", "delete_append"):
         return k[:-1], c
     if method == "delete":
@@ -224,7 +226,9 @@ def test_invalid_diagonal_update_remains_visible_through_factor_method():
 
 def test_empty_factor_append_delete_and_consumers():
     empty = Cholesky.from_factor(jnp.empty((0, 0), DTYPE))
-    one = jax.jit(lambda s: s.append(jnp.empty((0,), DTYPE), 2.0))(empty)
+    one = jax.jit(
+        lambda s: s.append(jnp.empty((0, 1), DTYPE), jnp.array([[2.0]], DTYPE))
+    )(empty)
     close(one.factor @ one.factor.T, jnp.array([[2.0]], DTYPE))
     back = jax.jit(lambda s: s.delete(0))(one)
     assert back.factor.shape == (0, 0)

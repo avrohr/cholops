@@ -16,7 +16,7 @@ from ..tensors import (
     cholesky,
 )
 from ..tensors._indexing import _keep
-from ..tensors._validation import _factor, _index, _scalar, _vector
+from ..tensors._validation import _blocks, _factor, _index, _scalar, _vector
 from ._consumers import _logdet, _quadratic, _rhs, _solve
 
 
@@ -60,16 +60,18 @@ class PermutedCholesky:
         order = jnp.arange(factor.shape[0])
         return cls(factor, order, order)
 
-    def append(self, k: Array, kappa: Array | float) -> "PermutedCholesky":
-        """Append a variable last in logical order, returning size n+1.
+    def append(self, K: Array, C: Array) -> "PermutedCholesky":
+        """Append r variables last in logical order, returning size n+r.
 
-        k:(n,) follows the existing logical order. kappa is the new diagonal.
+        K:(n,r) follows the existing logical order along its rows.
+        C:(r,r) must be symmetric and the target covariance positive definite.
+        Use (n,1) and (1,1) arrays for a single variable.
         """
         L = self.physical_factor
         n = L.shape[0]
-        k = _vector(k, n, L, "k")
-        result = chol_append(L, k[self.order], kappa)
-        last = jnp.asarray([n], dtype=self.order.dtype)
+        K, C = _blocks(K, C, L)
+        result = chol_append(L, K[self.order], C)
+        last = jnp.arange(n, n + C.shape[0], dtype=self.order.dtype)
         return type(self)(
             result,
             jnp.concatenate((self.order, last)),

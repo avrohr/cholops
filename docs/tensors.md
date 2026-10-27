@@ -20,7 +20,7 @@ Use `jax.vmap` for batches of modifications.
 | Function | Inputs and result | Differentiation |
 | --- | --- | --- |
 | `cholesky(A)` | Lower factor of the symmetric part of `A`; accepts `(...,n,n)` | JVP and reverse |
-| `chol_append(L, k, kappa)` | Factor of `[[A,k],[k.T,kappa]]`; `k:(n,)`, scalar `kappa`; output `(n+1,n+1)` | JVP and reverse |
+| `chol_append(L, K, C)` | Factor of `[[A,K],[K.T,C]]`; `K:(n,r)`, symmetric `C:(r,r)`; output `(n+r,n+r)` | JVP and reverse |
 | `chol_delete(L, index)` | Remove covariance row/column `index`; survivor order preserved; output `(n-1,n-1)` | JVP and reverse |
 | `chol_replace(L, index, k, kappa)` | Replace row/column at the same index; `k:(n-1,)` in survivor order | JVP and reverse |
 | `chol_delete_append(L, index, k, kappa)` | Delete `index`, append its replacement last; same inputs as `chol_replace` | JVP and reverse |
@@ -28,6 +28,9 @@ Use `jax.vmap` for batches of modifications.
 | `chol_diag_update(L, index, delta)` | Factor of `A + delta * outer(e_index,e_index)`; signed scalar `delta` | JVP and reverse, including zero |
 | `chol_rank1(L, u, alpha=1.0)` | Factor of `A + alpha * outer(u,u)`; `u:(n,)`, signed scalar `alpha` | JVP and reverse, including zero |
 | `chol_rank1_positive(L, u)` | Factor of `A + outer(u,u)`; `u:(n,)` | JVP and reverse |
+
+`chol_append` always takes block-shaped inputs. For one variable, use `K:(n,1)`
+and `C:(1,1)`. An empty block (`r=0`) leaves the factor unchanged.
 
 Every operation supports `jit`, `vmap`, first-order `jvp`/`jacfwd`, and
 `vjp`/`grad`/`jacrev` on its documented domain. `jax.linearize` can cache a

@@ -22,6 +22,17 @@ def _vector(x: Array, n: int, L: Array, name: str) -> Array:
     return x
 
 
+def _blocks(K: Array, C: Array, L: Array) -> tuple[Array, Array]:
+    K, C = jnp.asarray(K), jnp.asarray(C)
+    if C.ndim != 2 or C.shape[0] != C.shape[1]:
+        raise ValueError("C must be a square covariance block")
+    if K.shape != (L.shape[0], C.shape[0]):
+        raise ValueError("K must have shape (n,r) and C must have shape (r,r)")
+    if K.dtype != L.dtype or C.dtype != L.dtype:
+        raise TypeError("L, K and C must have the same dtype")
+    return K, C
+
+
 def _scalar(x: Array | float, L: Array, name: str) -> Array:
     # Python scalars follow the factor precision; typed arrays are never cast.
     x = jnp.asarray(x, dtype=L.dtype) if isinstance(x, (float, int)) else jnp.asarray(x)

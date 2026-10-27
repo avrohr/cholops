@@ -43,7 +43,7 @@ b = jnp.array([1.0, -0.5, 0.2])
 
 # Create a Cholesky factor from a positive-definite matrix.
 factor = Cholesky.from_matrix(A)
-factor = factor.append(jnp.array([0.2, 0.1, 0.05]), 1.3)
+factor = factor.append(jnp.array([[0.2], [0.1], [0.05]]), jnp.array([[1.3]]))
 L = factor.factor
 x = factor.solve(
     jnp.append(b, 0.4)
@@ -87,7 +87,7 @@ imported directly from `cholops`:
 | Operation | Description |
 | --- | --- |
 | `cholesky` | Factor a positive-definite matrix. |
-| `chol_append` | Append one covariance row and column. |
+| `chol_append` | Append a block of covariance rows and columns. |
 | `chol_delete` | Delete one covariance row and column, preserving survivor order. |
 | `chol_replace` | Replace one covariance row and column at the same index. |
 | `chol_delete_append` | Delete one variable and append its replacement last. |

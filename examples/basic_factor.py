@@ -31,7 +31,7 @@ def main():
 
     # Add d. Supply one covariance with each existing observation, followed by
     # d's own variance. Its measured value must also be appended to the data.
-    factor = original.append(jnp.array([0.2, 0.1, 0.05]), 1.3)
+    factor = original.append(jnp.array([[0.2], [0.1], [0.05]]), jnp.array([[1.3]]))
     observations = jnp.append(observations, 0.4)
 
     # Replace b with e at index 1. The cross-covariances follow the retained

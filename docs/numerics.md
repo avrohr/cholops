@@ -50,10 +50,11 @@ derivative, rather than letting it pass through the sensitive solves and cancel
 later. This improves the calculation without changing the mathematical
 derivative or forming a matrix inverse.
 
-Both factor classes use this rule in `from_matrix`. If you instead call
-`from_factor`, the supplied factor keeps the derivative history of whichever
-function produced it. Wrapping it does not replace that function's derivative
-rule.
+Both factor classes use this rule in `from_matrix`. Block append and
+trailing-block replacement also use it when factoring the Schur complement.
+If you instead call `from_factor`, the supplied factor keeps the derivative
+history of whichever function produced it. Wrapping it does not replace that
+function's derivative rule.
 
 ## Updating and replacing entries
 
