@@ -40,7 +40,7 @@ def main():
     observations = observations.at[1].set(-0.3)
 
     # Remove a from both objects. The surviving order is [e, c, d].
-    factor = factor.delete(0)
+    factor = factor.delete(jnp.asarray([0]))
     observations = observations[1:]
 
     # These calculations use the stored factor without forming a matrix inverse.

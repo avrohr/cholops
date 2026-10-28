@@ -2,8 +2,30 @@
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from ._autodiff import tangent_map
+
+
+def _indices(indices, n):
+    indices = jnp.asarray(indices)
+    if indices.ndim != 1 or not jnp.issubdtype(indices.dtype, jnp.integer):
+        raise TypeError("indices must be a one-dimensional integer array")
+    if indices.size > n:
+        raise ValueError("cannot delete more than n variables")
+    indices = jnp.sort(indices)
+    if not isinstance(indices, jax.core.Tracer):
+        values = np.asarray(indices)
+        if np.any((values < 0) | (values >= n)) or np.any(np.diff(values) == 0):
+            raise ValueError("indices must be distinct and in [0,n)")
+    return indices
+
+
+def _keep_many(n, indices):
+    """Map survivor positions to original indices, given sorted deletions."""
+    positions = jnp.arange(n - indices.size)
+    offsets = indices - jnp.arange(indices.size)
+    return positions + jnp.searchsorted(offsets, positions, side="right")
 
 
 def _keep(n, index):

@@ -48,7 +48,7 @@ def test_large_factor_and_both_derivative_modes(n, operation, position):
         if operation == "positive":
             return chol_rank1_positive(*a)
         if operation == "delete":
-            return chol_delete(a[0], jnp.asarray(i))
+            return chol_delete(a[0], jnp.asarray([i]))
         return chol_replace(a[0], jnp.asarray(i), *a[1:])
 
     def reference(L, *parameters):
@@ -109,7 +109,7 @@ def test_deletion_backward_storage_stays_within_quadratic_budget(n):
     # compiled size directly; adjacent-size ratios need not be monotone.
     L = jax.ShapeDtypeStruct((n, n), DTYPE)
     index = jax.ShapeDtypeStruct((), jnp.asarray(0).dtype)
-    fn = jax.jit(jax.grad(lambda L, i: jnp.sum(chol_delete(L, i))))
+    fn = jax.jit(jax.grad(lambda L, i: jnp.sum(chol_delete(L, jnp.asarray([i])))))
     compiled = fn.lower(L, index).compile()
     memory = compiled.memory_analysis()
     assert memory is not None

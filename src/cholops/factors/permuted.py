@@ -15,7 +15,7 @@ from ..tensors import (
     chol_rank1_positive,
     cholesky,
 )
-from ..tensors._indexing import _keep
+from ..tensors._indexing import _indices, _keep_many
 from ..tensors._validation import _blocks, _factor, _index, _scalar, _vector
 from ._consumers import _logdet, _quadratic, _rhs, _solve
 
@@ -78,21 +78,19 @@ class PermutedCholesky:
             jnp.concatenate((self.inverse_order, last)),
         )
 
-    def delete(self, index: Array | int) -> "PermutedCholesky":
-        """Delete a logical variable, preserving survivor order and returning n-1.
+    def delete(self, indices: Array) -> "PermutedCholesky":
+        """Delete logical indices:(r,), preserving survivor order.
 
-        Remaining logical indices are renumbered from zero.
+        Indices must be distinct and in bounds. Remaining logical indices
+        are renumbered from zero. The result has size n-r.
         """
-        L = self.physical_factor
-        n = L.shape[0]
-        index = _index(index, n)
-        physical = self.inverse_order[index]
-        result = chol_delete(L, physical)
-        survivors = self.order[_keep(n, physical)]
-        order = survivors - (survivors > index)
-        inverse = self.inverse_order[_keep(n, index)]
-        inverse = inverse - (inverse > physical)
-        return type(self)(result, order, inverse)
+        n = self.physical_factor.shape[0]
+        indices = _indices(indices, n)
+        physical = jnp.sort(self.inverse_order[indices])
+        result = chol_delete(self.physical_factor, physical)
+        survivors = self.order[_keep_many(n, physical)]
+        order = survivors - jnp.searchsorted(indices, survivors)
+        return type(self)(result, order, jnp.argsort(order))
 
     def replace(
         self, index: Array | int, k: Array, kappa: Array | float
@@ -114,33 +112,22 @@ class PermutedCholesky:
         keep = jnp.arange(n - 1) + (jnp.arange(n - 1) >= physical)
         survivors = self.order[keep]
         compact = survivors - (survivors > index)
-        result = chol_delete_append(L, physical, k[compact], kappa)
+        result = chol_delete_append(
+            L, physical[None], k[compact, None], kappa.reshape(1, 1)
+        )
         order = jnp.concatenate((survivors, index[None]))
         inverse = self.inverse_order - (self.inverse_order > physical)
         inverse = inverse.at[index].set(n - 1)
         return type(self)(result, order, inverse)
 
-    def delete_append(
-        self, index: Array | int, k: Array, kappa: Array | float
-    ) -> "PermutedCholesky":
-        """Delete a logical variable and append its replacement last.
+    def delete_append(self, indices: Array, K: Array, C: Array) -> "PermutedCholesky":
+        """Delete logical indices:(r,) and append a block of s variables.
 
-        k:(n-1,) follows logical survivor order. kappa is the new diagonal.
-        Unlike replace, this changes logical order to survivors then replacement.
+        K:(n-r,s) follows logical survivor order. C:(s,s) must be symmetric
+        and the target positive definite. Indices must be distinct and in bounds.
+        The result has size n-r+s, in survivor order followed by the new block.
         """
-        L = self.physical_factor
-        n = L.shape[0]
-        index = _index(index, n)
-        k = _vector(k, n - 1, L, "k")
-        physical = self.inverse_order[index]
-        survivors = self.order[_keep(n, physical)]
-        compact = survivors - (survivors > index)
-        result = chol_delete_append(L, physical, k[compact], kappa)
-        last = jnp.asarray([n - 1], dtype=self.order.dtype)
-        order = jnp.concatenate((compact, last))
-        inverse = self.inverse_order[_keep(n, index)]
-        inverse = jnp.concatenate((inverse - (inverse > physical), last))
-        return type(self)(result, order, inverse)
+        return self.delete(indices).append(K, C)
 
     def diag_update(
         self, index: Array | int, delta: Array | float

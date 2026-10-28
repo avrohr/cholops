@@ -61,9 +61,10 @@ Each method returns a new `Cholesky` object and leaves the original unchanged.
 | Method | Effect and inputs |
 | --- | --- |
 | `append(K, C)` | Add `r` rows and columns, with `K:(n,r)` and symmetric `C:(r,r)` |
-| `delete(index)` | Remove one row and column, preserving the order of the remaining entries |
+| `delete(indices)` | Remove `indices:(r,)`, preserving the order of the remaining entries |
+| `delete_last(r)` | Remove the final `r` rows and columns by slicing; `r` is static |
 | `replace(index, k, kappa)` | Replace a row and column at the same index, with `k:(n-1,)` and scalar diagonal `kappa` |
-| `delete_append(index, k, kappa)` | Delete a row and column and append the replacement last, with the same inputs as `replace` |
+| `delete_append(indices, K, C)` | Delete `indices:(r,)` and append `s` variables, with `K:(n-r,s)` and symmetric `C:(s,s)` |
 | `replace_last(K, C)` | Replace the final `r` rows and columns, with `K:(n-r,r)` and `C:(r,r)` |
 | `diag_update(index, delta)` | Add signed `delta` to one matrix diagonal entry |
 | `rank1(u, alpha=1.0)` | Add `alpha * outer(u,u)`, with `u:(n,)` and signed weight `alpha` |
@@ -72,13 +73,17 @@ Each method returns a new `Cholesky` object and leaves the original unchanged.
 `append` always takes block-shaped arrays, including `(n,1)` and `(1,1)`
 for one variable. The rows of `K` follow the existing variable order.
 
-For `replace` and `delete_append`, supply `k` in the order of the entries you
-are keeping. Replacing `b` with `e` in `[a, b, c, d]` therefore uses `k` in the
-order `[a, c, d]`. The result has order `[a, e, c, d]` for `replace`, or
+`delete` and `delete_append` take an integer array of distinct indices, including
+`jnp.array([i])` for one variable. Indices refer to the input before deletion.
+For `replace`, supply `k` in the order of the entries you are keeping.
+For `delete_append`, the rows of `K` follow that order. Replacing `b` with `e`
+in `[a, b, c, d]` therefore uses entries in the order `[a, c, d]`.
+The result has order `[a, e, c, d]` for `replace`, or
 `[a, c, d, e]` for `delete_append`. Subsequent inputs must follow that order.
 Deletion renumbers the remaining indices from zero.
 
-`replace_last` keeps the leading factor and recomputes only the trailing block.
+`replace_last` wraps `delete_append` with equal-sized trailing blocks. It keeps
+the leading factor and recomputes only the trailing block.
 This makes small trailing-block replacements efficient and avoids the downdate
 used by general index-preserving replacement.
 
@@ -88,7 +93,7 @@ only need to add `outer(u,u)`.
 
 ```python
 expanded = factor.append(jnp.array([[0.1], [0.2], [0.1]]), jnp.array([[1.0]]))
-reduced = expanded.delete(1)  # Order is now [0, 2, appended].
+reduced = expanded.delete(jnp.array([1]))  # Order is now [0, 2, appended].
 updated = factor.rank1_positive(jnp.array([0.1, -0.2, 0.1]))
 downdated = updated.rank1(jnp.array([0.1, -0.2, 0.1]), alpha=-0.5)
 shifted = downdated.diag_update(0, 0.1)
@@ -169,15 +174,15 @@ matrix order.
 ### Available methods
 
 `PermutedCholesky` supports all the `Cholesky` methods described above except
-`replace_last`. After replacements, the last logical variables can be scattered
-throughout the stored factor, so they do not form the trailing block required
-by that algorithm.
+`replace_last` and `delete_last`. After replacements, the last logical variables
+can be scattered throughout the stored factor, so they do not form a physical
+trailing block.
 
-For all supported methods, supply indices and vectors in logical order.
+For all supported methods, supply indices and arrays in logical order.
 `replace` preserves logical positions. `delete_append` deliberately moves the
 replacement to the end of logical order, just as it does on `Cholesky`.
-Append adds a new last logical index, and delete renumbers the surviving logical
-indices from zero. The object updates its internal maps for each operation.
+Append adds new logical indices at the end, and delete renumbers the surviving
+logical indices from zero. The object updates its internal maps for each operation.
 
 Both `from_matrix` and `from_factor` start with identical logical and physical
 ordering. Methods return new objects. JIT, batching, fixed-size scans and

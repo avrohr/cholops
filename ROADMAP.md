@@ -8,6 +8,5 @@
 
 ## Possible extensions
 
-- [ ] Block deletion.
 - [ ] Rank-k updates.
 - [ ] Faster signed updates and downdates.

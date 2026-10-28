@@ -80,7 +80,9 @@ def test_replacement_and_all_continuous_vjps(n, index):
     close(out @ out.T, expected)
     # Index preservation includes an exactly unchanged leading factor.
     np.testing.assert_array_equal(out[:index, :index], L[:index, :index])
-    shifted = jax.jit(chol_delete_append)(*args)
+    shifted = jax.jit(chol_delete_append)(
+        L, jnp.asarray([index]), k[:, None], jnp.asarray(kappa).reshape(1, 1)
+    )
     order = np.r_[keep, index]
     close(shifted @ shifted.T, expected[np.ix_(order, order)])
 

@@ -7,7 +7,7 @@ first order, in both forward and reverse mode.
 """
 
 from .append import chol_append
-from .deletion import chol_delete, chol_delete_append
+from .deletion import chol_delete, chol_delete_append, chol_delete_last
 from .factorization import cholesky
 from .rank_one import chol_diag_update, chol_rank1, chol_rank1_positive
 from .replacement import chol_replace, chol_replace_last
@@ -16,6 +16,7 @@ __all__ = [
     "cholesky",
     "chol_append",
     "chol_delete",
+    "chol_delete_last",
     "chol_diag_update",
     "chol_rank1",
     "chol_rank1_positive",

@@ -10,6 +10,7 @@ from ..tensors import (
     chol_append,
     chol_delete,
     chol_delete_append,
+    chol_delete_last,
     chol_diag_update,
     chol_rank1,
     chol_rank1_positive,
@@ -77,13 +78,17 @@ class Cholesky:
         """
         return type(self)(chol_append(self.factor, K, C))
 
-    def delete(self, index: Array | int) -> "Cholesky":
-        """Delete one variable, preserving survivor order; return size n-1.
+    def delete(self, indices: Array) -> "Cholesky":
+        """Delete indices:(r,), preserving survivor order and returning size n-r.
 
-        index must be in [0,n). Check traced indices before calling this method,
-        since they are not checked at runtime.
+        Indices must be distinct and in bounds. Their count is static, but
+        values may be traced. Traced values are not checked at runtime.
         """
-        return type(self)(chol_delete(self.factor, index))
+        return type(self)(chol_delete(self.factor, indices))
+
+    def delete_last(self, r: int) -> "Cholesky":
+        """Remove the last r variables by slicing. r must be static and in [0,n]."""
+        return type(self)(chol_delete_last(self.factor, r))
 
     def replace(self, index: Array | int, k: Array, kappa: Array | float) -> "Cholesky":
         """Replace at index, preserving every other index and the (n,n) shape.
@@ -94,17 +99,14 @@ class Cholesky:
         """
         return type(self)(chol_replace(self.factor, index, k, kappa))
 
-    def delete_append(
-        self, index: Array | int, k: Array, kappa: Array | float
-    ) -> "Cholesky":
-        """Delete index and append its replacement at the end, keeping size n.
+    def delete_append(self, indices: Array, K: Array, C: Array) -> "Cholesky":
+        """Delete indices:(r,) and append s variables, returning size n-r+s.
 
-        k:(n-1,) follows survivor order. kappa is the new diagonal.
-        The returned factor is ordered as survivors followed by the replacement.
-        The target must be positive definite and index must be in [0,n).
-        Traced indices are not checked at runtime.
+        K:(n-r,s) follows survivor order. C:(s,s) must be symmetric and the
+        target positive definite. Indices must be distinct and in bounds.
+        The result is ordered as survivors followed by the appended block.
         """
-        return type(self)(chol_delete_append(self.factor, index, k, kappa))
+        return type(self)(chol_delete_append(self.factor, indices, K, C))
 
     def replace_last(self, K: Array, C: Array) -> "Cholesky":
         """Replace the last r variables with K:(n-r,r), C:(r,r), keeping size n.

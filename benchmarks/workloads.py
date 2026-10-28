@@ -144,11 +144,15 @@ def _add_operation_phases(
 
 
 def _operation(name, L, params, index):
-    if name in ("delete", "replace", "delete_append", "diag_update"):
+    if name == "delete":
+        return chol_delete(L, index[None])
+    if name == "delete_append":
+        return chol_delete_append(
+            L, index[None], params[0][:, None], params[1].reshape(1, 1)
+        )
+    if name in ("replace", "diag_update"):
         functions = {
-            "delete": chol_delete,
             "replace": chol_replace,
-            "delete_append": chol_delete_append,
             "diag_update": chol_diag_update,
         }
         return functions[name](L, index, *params)

@@ -37,7 +37,12 @@ def main():
     cross = jnp.array([0.15, 0.1, 0.2])
     variance = 1.2
     replaced = chol_replace(lower, 1, cross, variance)
-    appended = chol_delete_append(lower, 1, cross, variance)
+    appended = chol_delete_append(
+        lower,
+        jnp.asarray([1]),
+        cross[:, None],
+        jnp.array([[variance]]),
+    )
 
     # chol_replace preserves the replaced slot: the result is [a, e, c, d].
     rhs = jnp.array([1.0, -0.3, 0.2, 0.4])

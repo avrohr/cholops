@@ -47,7 +47,13 @@ def modified_matrix(A, method, args):
 
 
 def modify(state, method, args):
-    if method in ("delete", "replace", "delete_append", "diag_update"):
+    if method == "delete":
+        return state.delete(jnp.array([2]))
+    if method == "delete_append":
+        return state.delete_append(
+            jnp.array([2]), args[0][:, None], args[1].reshape(1, 1)
+        )
+    if method in ("replace", "diag_update"):
         return getattr(state, method)(jnp.array(2), *args)
     return getattr(state, method)(*args)
 
@@ -224,7 +230,7 @@ def test_empty_factor_append_delete_and_consumers():
         lambda s: s.append(jnp.empty((0, 1), DTYPE), jnp.array([[2.0]], DTYPE))
     )(empty)
     close(one.factor @ one.factor.T, jnp.array([[2.0]], DTYPE))
-    back = jax.jit(lambda s: s.delete(0))(one)
+    back = jax.jit(lambda s: s.delete(jnp.asarray([0])))(one)
     assert back.factor.shape == (0, 0)
     close(back.logdet(), jnp.asarray(0, DTYPE))
     close(back.quadratic(jnp.empty((0,), DTYPE)), jnp.asarray(0, DTYPE))
@@ -240,8 +246,8 @@ def test_delete_from_factor_matches_tensor_and_dense_gradient():
         return jnp.linalg.cholesky(A[keep[:, None], keep[None, :]])
 
     functions = (
-        lambda L: chol_delete(L, jnp.array(1)),
-        lambda L: Cholesky.from_factor(L).delete(jnp.array(1)).factor,
+        lambda L: chol_delete(L, jnp.asarray([1])),
+        lambda L: Cholesky.from_factor(L).delete(jnp.asarray([1])).factor,
         reference,
     )
     results = [

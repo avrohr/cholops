@@ -56,7 +56,11 @@ def test_replacement_tangent_all_inputs_and_duality(index, append):
 
     def evaluate(i, *args):
         def operation(*xs):
-            return fn(xs[0], i, xs[1], xs[2])
+            return (
+                fn(xs[0], i[None], xs[1][:, None], xs[2].reshape(1, 1))
+                if append
+                else fn(xs[0], i, xs[1], xs[2])
+            )
 
         value, tangent = jax.jvp(operation, args, tangents)
         gradients = jax.vjp(operation, *args)[1](G)
@@ -87,7 +91,7 @@ def test_jacfwd_matches_jacrev_and_independent_dense(name):
         def ref(L):
             return jnp.linalg.cholesky(covariance(L) + jnp.outer(u, u))
     elif name == "delete":
-        x, fn = L, lambda L: chol_delete(L, jnp.asarray(1))
+        x, fn = L, lambda L: chol_delete(L, jnp.asarray([1]))
 
         def ref(L):
             return jnp.linalg.cholesky(
@@ -116,7 +120,7 @@ def test_deletion_shared_factor_batched_indices(n):
     indices = jnp.arange(n)
 
     def candidate(L):
-        return jax.vmap(chol_delete, (None, 0))(L, indices)
+        return jax.vmap(chol_delete, (None, 0))(L, indices[:, None])
 
     def reference(L):
         A = covariance(L)
@@ -147,6 +151,10 @@ def test_batched_dynamic_indices_shared_tangents_and_unused_triangle():
     for fn in (chol_replace, chol_delete_append):
 
         def mapped(L, k, c):
+            if fn is chol_delete_append:
+                return jax.vmap(fn, (0, 0, None, None))(
+                    L, indices[:, None], k[:, None], c.reshape(1, 1)
+                )
             return jax.vmap(fn, (0, 0, None, None))(L, indices, k, c)
 
         def ref(L, k, c):

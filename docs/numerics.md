@@ -70,8 +70,10 @@ forward calculation also uses scaled norms to avoid unnecessarily squaring
 large intermediate values. These choices improve robustness but do not remove
 all sources of rounding error or overflow.
 
-Deletion uses a positive rank-one update to obtain the factor of the remaining
-matrix. Delete-and-append then extends that factor with the new variable.
+Deletion gathers the surviving rows and columns of the factor, then applies
+one positive rank-one update for each deleted column. A trailing deletion
+only slices the factor. Delete-and-append extends the retained factor with
+the new block.
 Replacing a variable at its original index needs an additional downdate of the
 trailing factor, unless the variable is already last. Avoiding this downdate is
 one reason to use [PermutedCholesky](factors.md#permutedcholesky) for repeated

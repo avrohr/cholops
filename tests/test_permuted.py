@@ -129,7 +129,11 @@ def logical_matrix(state):
 
 
 def apply_method(state, method, index, args):
-    if method in ("delete", "delete_append", "diag_update"):
+    if method == "delete":
+        return state.delete(index[None])
+    if method == "delete_append":
+        return state.delete_append(index[None], args[0][:, None], args[1].reshape(1, 1))
+    if method == "diag_update":
         return getattr(state, method)(index, *args)
     return getattr(state, method)(*args)
 
@@ -269,7 +273,9 @@ def test_size_changes_and_repeated_mixed_updates():
     state = reordered_state(A)
     # Exercise the maps repeatedly, including deletion of the physical last slot.
     for index in (0, 3, 1, 0, 0):
-        state = jax.jit(lambda s, i: s.delete(i))(state, jnp.asarray(index))
+        state = jax.jit(lambda s, i: s.delete(jnp.asarray([i])))(
+            state, jnp.asarray(index)
+        )
         A = jnp.asarray(
             np.delete(np.delete(np.asarray(A), index, axis=0), index, axis=1)
         )
@@ -281,7 +287,11 @@ def test_size_changes_and_repeated_mixed_updates():
     singleton = jax.jit(
         lambda s: s.append(
             empty_vector[:, None], jnp.array([[2.0]], DTYPE)
-        ).delete_append(0, empty_vector, 3.0)
+        ).delete_append(
+            jnp.asarray([0]),
+            jnp.reshape(empty_vector, (-1, 1)),
+            jnp.asarray([[3.0]]),
+        )
     )(state)
     check_permutations(singleton)
     close(logical_matrix(singleton), jnp.asarray([[3.0]], DTYPE))
@@ -294,7 +304,11 @@ def test_size_changes_and_repeated_mixed_updates():
         check_permutations(state)
         close(logical_matrix(state), A)
     # delete_append changes logical order; replace preserves the resulting slots.
-    state = state.delete_append(1, jnp.array([0.1, 0.2], DTYPE), 1.3)
+    state = state.delete_append(
+        jnp.asarray([1]),
+        jnp.reshape(jnp.array([0.1, 0.2], DTYPE), (-1, 1)),
+        jnp.asarray([[1.3]]),
+    )
     A = dense_modification(
         A,
         "delete_append",
@@ -333,7 +347,11 @@ def test_mixed_modifications_in_scan_and_gradients():
                 )
             else:
                 state = state.rank1(u, weight).diag_update(index, 0.1)
-                state = state.delete_append(index, u[:-1], diagonal)
+                state = state.delete_append(
+                    jnp.asarray([index]),
+                    jnp.reshape(u[:-1], (-1, 1)),
+                    diagonal.reshape(1, 1),
+                )
                 score = state.logdet() + state.quadratic(rhs)
             return state, score
 
