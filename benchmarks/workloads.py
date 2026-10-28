@@ -270,7 +270,10 @@ def _sequence(implementation):
             X = X.at[i].set(new)
             rhs = X[:, 0]
             if implementation in ("canonical", "managed"):
-                state = state.replace(i, k, c)
+                if implementation == "managed":
+                    state = state.replace(i[None], k[:, None], c.reshape(1, 1))
+                else:
+                    state = state.replace(i, k, c)
                 value = (state.logdet() + state.quadratic(rhs)) / (2 * n)
             else:
                 # Retain the covariance, avoiding reconstruction from L.

@@ -198,9 +198,12 @@ def test_matrix_to_managed_sequence_to_consumers_both_modes(cls):
             keep = jnp.arange(4) + (jnp.arange(4) >= i)
             k, c = scale * X[keep] @ new, 1 + scale * jnp.vdot(new, new)
             X = X.at[i].set(new)
-            factor = (
-                cls.from_matrix(matrix(X)) if recompute else factor.replace(i, k, c)
-            )
+            if recompute:
+                factor = cls.from_matrix(matrix(X))
+            elif cls is PermutedCholesky:
+                factor = factor.replace(i[None], k[:, None], c.reshape(1, 1))
+            else:
+                factor = factor.replace(i, k, c)
             rhs = X[:, 0]
             score = factor.logdet() + factor.quadratic(rhs) + jnp.sum(factor.solve(rhs))
             return (factor, X), score

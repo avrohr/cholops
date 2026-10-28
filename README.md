@@ -52,7 +52,7 @@ x = factor.solve(
 # PermutedCholesky replaces by deletion and appending,
 # while managing logical ordering transparently.
 managed = PermutedCholesky.from_matrix(A)
-updated = managed.replace(1, jnp.array([0.2, 0.1]), 1.3)
+updated = managed.replace(jnp.array([1]), jnp.array([[0.2], [0.1]]), jnp.array([[1.3]]))
 x_new = updated.solve(b)  # Inputs and outputs remain in logical order.
 
 

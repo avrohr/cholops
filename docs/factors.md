@@ -145,8 +145,8 @@ Higher-order derivatives have not been validated for general use.
 ## PermutedCholesky
 
 When replacements are frequent, preserving the factor's original ordering can
-add work. `PermutedCholesky` instead deletes the old variable and appends its
-replacement at the end of the stored factor. This avoids the trailing downdate
+add work. `PermutedCholesky` instead deletes the old variables and appends their
+replacements at the end of the stored factor. This avoids the trailing downdate
 used by index-preserving replacement and can make repeated replacements faster
 and more numerically stable.
 
@@ -160,7 +160,7 @@ input and output ordering as `Cholesky`.
 from cholops import PermutedCholesky
 
 managed = PermutedCholesky.from_matrix(K)
-managed = managed.replace(1, jnp.array([0.2, 0.1]), 1.2)
+managed = managed.replace(jnp.array([1]), jnp.array([[0.2], [0.1]]), jnp.array([[1.2]]))
 alpha = managed.solve(y)  # y and alpha still follow logical order [0, 1, 2].
 
 expanded = managed.append(jnp.array([[0.1], [0.2], [0.1]]), jnp.array([[1.0]]))
@@ -177,6 +177,15 @@ matrix order.
 `replace_last` and `delete_last`. After replacements, the last logical variables
 can be scattered throughout the stored factor, so they do not form a physical
 trailing block.
+
+Its `replace(indices, K, C)` accepts a block, with `indices:(r,)`, `K:(n-r,r)`
+and symmetric `C:(r,r)`. The rows of `K` follow the remaining logical indices.
+Its columns and both axes of `C` follow the supplied `indices` order.
+For example, `indices = jnp.array([3, 1])` replaces slots 3 and 1. The columns
+of `K` describe their replacements in that order, and its rows describe
+the unchanged slots `[0, 2, 4, ...]`. Each replacement keeps its logical slot.
+Use block-shaped arrays even for one replacement, as above.
+`Cholesky.replace` still replaces one variable with a vector and scalar.
 
 For all supported methods, supply indices and arrays in logical order.
 `replace` preserves logical positions. `delete_append` deliberately moves the

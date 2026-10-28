@@ -40,7 +40,11 @@ def main():
     for cls in (Cholesky, PermutedCholesky):
 
         def score(A, k, kappa, rhs):
-            factor = cls.from_matrix(A).replace(jnp.asarray(1), k, kappa)
+            factor = cls.from_matrix(A)
+            if cls is PermutedCholesky:
+                factor = factor.replace(jnp.array([1]), k[:, None], kappa.reshape(1, 1))
+            else:
+                factor = factor.replace(1, k, kappa)
             return factor.logdet() + factor.quadratic(rhs) + jnp.sum(factor.solve(rhs))
 
         actual = evaluate(score)
