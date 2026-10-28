@@ -243,3 +243,23 @@ def test_block_delete_append_in_checkpointed_scan(implementation):
         jax.jit(lambda *a: jax.jvp(candidate, a, directions))(*args),
         jax.jvp(reference, args, directions),
     )
+
+
+@pytest.mark.parametrize("r", [5, 27])
+def test_block_deletion_of_dense_factor_with_few_or_many_survivors(r):
+    n = 32
+    rng = np.random.default_rng(85)
+    X = jnp.asarray(rng.normal(size=(n, n)) / np.sqrt(n), DTYPE)
+    L = cholesky(jnp.eye(n, dtype=DTYPE) + X @ X.T)
+    deleted = rng.choice(n, r, replace=False)
+    keep = np.delete(np.arange(n), deleted)
+    indices = jnp.asarray(deleted, jnp.int32)
+
+    def reference(L):
+        rows = jnp.tril(L)[keep]
+        return jnp.linalg.cholesky(rows @ rows.T)
+
+    close(
+        evaluate(lambda L: chol_delete(L, indices), (L,)),
+        evaluate(reference, (L,)),
+    )

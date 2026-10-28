@@ -1,6 +1,7 @@
-# Update and replacement adjoints
+# Update, deletion and replacement adjoints
 
-This note explains the formulas in [rank_one.py](../src/cholops/tensors/rank_one.py)
+This note explains the formulas in [rank_one.py](../src/cholops/tensors/rank_one.py),
+[deletion.py](../src/cholops/tensors/deletion.py)
 and [replacement.py](../src/cholops/tensors/replacement.py). It concerns real lower factors
 with positive diagonals and positive-definite targets. Indices are fixed during
 differentiation; factor perturbations are lower triangular. Bars denote
@@ -142,3 +143,18 @@ The [update tests](../tests/test_updates.py),
 [forward-mode tests](../tests/test_forward_ad.py) compare these rules with
 independent dense or high-precision references. The
 [numerical limits](numerics.md#conditioning-and-precision) still apply.
+
+## Block deletion
+
+Deletion uses orthogonal rotations of the retained factor and the deleted-column
+block. `_delete_pushforward` differentiates each rotation, carrying the tangent
+of that block alongside its value. It reuses the saved rotation coefficients
+and output factor.
+
+The reverse pass starts with the final, zeroed deleted-column block. It undoes
+each rotation to recover the block before that step, then uses `jax.vjp` on the
+single rotation to propagate its cotangents. The retained factor, initial column
+block, output factor and rotation coefficients are saved, rather than all
+intermediate blocks or factors. Work is quadratic in the retained size and linear in the deletion count
+in both directions. Saved storage is quadratic in the retained size plus the
+size of the deleted-column block.

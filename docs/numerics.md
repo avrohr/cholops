@@ -70,10 +70,13 @@ forward calculation also uses scaled norms to avoid unnecessarily squaring
 large intermediate values. These choices improve robustness but do not remove
 all sources of rounding error or overflow.
 
-Deletion gathers the surviving rows and columns of the factor, then applies
-one positive rank-one update for each deleted column. `delete_last`
-only slices the factor. Delete-and-append extends the retained factor with
-the new block.
+Deletion gathers the retained factor and the deleted columns, then combines
+them using orthogonal rotations. Each rotation eliminates a whole row of the
+deleted-column block, processing all deleted variables together. It does not
+form the covariance or solve against the retained factor. The reverse pass
+undoes the rotations to recover intermediate values, avoiding a saved factor
+for every deleted variable. `delete_last` only slices the factor.
+Delete-and-append extends the retained factor with the new block.
 Replacing a variable at its original index needs an additional downdate of the
 trailing factor, unless the variable is already last. Avoiding this downdate is
 one reason to use [PermutedCholesky](factors.md#permutedcholesky) for repeated
