@@ -123,14 +123,6 @@ def _delete_last(L, r):
     return L[:m, :m]
 
 
-def _delete(L, indices):
-    m = L.shape[0] - indices.size
-    if indices.size == 0 or m == 0:
-        return _delete_last(L, indices.size)
-    keep = _keep_many(L.shape[0], indices)
-    return _delete_rotations(L, indices, keep)
-
-
 def chol_delete(L: Array, indices: Array) -> Array:
     """Delete variables at indices:(r,), returning an (n-r,n-r) lower factor.
 
@@ -145,7 +137,13 @@ def chol_delete(L: Array, indices: Array) -> Array:
     for trailing deletion by slicing.
     """
     L = _factor(L)
-    return _delete(L, _indices(indices, L.shape[0]))
+    indices = _indices(indices, L.shape[0])
+    if indices.size == 0:
+        return L
+    if indices.size == L.shape[0]:
+        return L[:0, :0]
+    keep = _keep_many(L.shape[0], indices)
+    return _delete_rotations(L, indices, keep)
 
 
 def chol_delete_last(L: Array, r: int) -> Array:
