@@ -51,7 +51,7 @@ def _delete_pushforward(saved, dL):
 
 
 @jax.custom_jvp
-def _delete_general(L, indices, keep):
+def _delete_updates(L, indices, keep):
     retained, columns = _extract(L, keep, indices)
 
     def step(M, u):
@@ -60,7 +60,7 @@ def _delete_general(L, indices, keep):
     return lax.scan(step, retained, columns.T)[0]
 
 
-@_delete_general.defjvp
+@_delete_updates.defjvp
 def _delete_jvp(primals, tangents):
     L, indices, keep = primals
     dL, _, _ = tangents
@@ -68,17 +68,20 @@ def _delete_jvp(primals, tangents):
     return Y, tangent_map(_delete_bwd, saved, dL, Y, _delete_pushforward)
 
 
+def _delete_last(L, r):
+    m = L.shape[0] - r
+    return L[:m, :m]
+
+
 def _delete(L, indices):
     m = L.shape[0] - indices.size
-    if indices.size == 0:
-        return L
-    if m == 0:
-        return L[:0, :0]
+    if indices.size == 0 or m == 0:
+        return _delete_last(L, indices.size)
     keep = _keep_many(L.shape[0], indices)
     return lax.cond(
         jnp.all(indices == jnp.arange(m, L.shape[0])),
-        lambda: L[:m, :m],
-        lambda: _delete_general(L, indices, keep),
+        lambda: _delete_last(L, indices.size),
+        lambda: _delete_updates(L, indices, keep),
     )
 
 
@@ -108,8 +111,7 @@ def chol_delete_last(L: Array, r: int) -> Array:
     r = operator.index(r)
     if not 0 <= r <= L.shape[0]:
         raise ValueError("r must be in [0,n]")
-    m = L.shape[0] - r
-    return L[:m, :m]
+    return _delete_last(L, r)
 
 
 def chol_delete_append(L: Array, indices: Array, K: Array, C: Array) -> Array:
