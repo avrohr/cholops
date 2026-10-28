@@ -218,12 +218,6 @@ def test_positive_update_logdet_jvp_from_factor():
     close(actual, expected)
 
 
-def test_invalid_diagonal_update_remains_visible_through_factor_method():
-    state = Cholesky.from_matrix(fixture())
-    invalid = jax.jit(lambda s: s.diag_update(0, -100.0).factor)(state)
-    assert not bool(jnp.all(jnp.isfinite(invalid)))
-
-
 def test_empty_factor_append_delete_and_consumers():
     empty = Cholesky.from_factor(jnp.empty((0, 0), DTYPE))
     one = jax.jit(

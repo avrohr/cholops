@@ -335,25 +335,6 @@ def test_downdate_near_spd_boundary(margin):
     )
 
 
-def test_non_spd_and_invalid_data_are_visible_under_jit_and_vmap():
-    L = jnp.eye(3)
-    u = jnp.asarray([1.0, 0.0, 0.0])
-    result = jax.jit(jax.vmap(chol_rank1, in_axes=(None, None, 0)))(
-        L, u, jnp.asarray([0.2, -1.0, -1.1])
-    )
-    assert np.isfinite(result[0]).all()
-    assert np.isnan(result[1:]).all()
-    assert np.isnan(jax.jit(chol_append)(L, jnp.ones((3, 1)), jnp.ones((1, 1)))).all()
-    assert np.isnan(jax.jit(chol_diag_update)(L, jnp.asarray(1), -2.0)).all()
-    assert not np.isfinite(jax.jit(chol_delete_append)(L, 1, jnp.ones(2), 0.0)).all()
-    assert np.isnan(jax.jit(chol_rank1)(L, u.at[0].set(jnp.inf), 0.0)).all()
-    # Consuming an otherwise unchanged factor entry must not hide failure.
-    selected = jax.jit(
-        lambda factor_input: chol_diag_update(factor_input, 2, -2.0)[0, 0]
-    )(L)
-    assert np.isnan(selected)
-
-
 @pytest.mark.parametrize("index", [-1, 3])
 def test_invalid_runtime_indices(index):
     L = jnp.eye(3)

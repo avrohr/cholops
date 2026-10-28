@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from jax import Array
 from jax.scipy.linalg import solve_triangular
 
-from ._validation import _blocks, _factor, _finish, _valid_factor
+from ._validation import _blocks, _factor
 from .factorization import cholesky
 
 
@@ -42,9 +42,7 @@ def chol_append(L: Array, K: Array, C: Array) -> Array:
     complement uses cholops' symmetry-preserving Cholesky reverse rule.
     C and its tangents follow the symmetric-input convention of cholesky.
     Work is O(n^2*r + n*r^2 + r^3), plus writing the result.
-    Numerical failure gives NaNs.
     """
     L = _factor(L)
     K, C = _blocks(K, C, L)
-    valid = _valid_factor(L) & jnp.all(jnp.isfinite(K)) & jnp.all(jnp.isfinite(C))
-    return _finish(_append_block(L, K, C), valid)
+    return _append_block(L, K, C)

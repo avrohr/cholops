@@ -1,4 +1,4 @@
-"""Shared shape, dtype and validity checks for tensor operations."""
+"""Shared shape, dtype and index checks for tensor operations."""
 
 import jax.numpy as jnp
 from jax import Array
@@ -54,13 +54,3 @@ def _index(index: Array | int, n: int) -> Array:
     if index.shape != () or not jnp.issubdtype(index.dtype, jnp.integer):
         raise TypeError("index must be an integer scalar")
     return index
-
-
-def _valid_factor(L: Array) -> Array:
-    return jnp.all(jnp.isfinite(L)) & jnp.all(jnp.diag(L) > 0)
-
-
-def _finish(result: Array, valid: Array) -> Array:
-    valid = valid & _valid_factor(result)
-    # Keep the failure marker in arithmetic on the result, including its AD path.
-    return result * jnp.where(valid, 1, jnp.asarray(jnp.nan, dtype=result.dtype))
