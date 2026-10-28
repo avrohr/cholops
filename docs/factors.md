@@ -47,12 +47,40 @@ The methods below operate on the represented matrix `A = L @ L.T`.
 | Method | Inputs | Result |
 | --- | --- | --- |
 | `solve(rhs)` | Vector `(n,)` or matrix `(n,r)` | Solution of `A @ x = rhs` |
+| `whiten(rhs)` | Matrix `(n,r)` | `W:(n,r)` with `L @ W = rhs`, in whitened coordinates |
 | `logdet()` | None | Log determinant of `A` |
 | `quadratic(rhs)` | Vector `(n,)` or matrix `(n,r)` | `rhs.T @ A^{-1} @ rhs` for a vector, or one quadratic form per column |
 
 Inputs share a float32 or float64 dtype. The matrix must be positive definite.
 See the [tensor input requirements and failure behavior](tensors.md#preconditions-and-failures)
 for what the caller needs to check.
+
+### Whitening and covariance reductions
+
+`whiten(B)` performs one triangular solve and returns an array with the same
+shape `(n,r)`. Use `(n,1)` for a single right-hand side. For the represented
+matrix `A`, the result satisfies `W.T @ W = B.T @ A^{-1} @ B`.
+
+```python
+B = jnp.array([[0.2, 0.1], [0.1, -0.2], [0.3, 0.2]])
+W = factor.whiten(B)
+reduction = W.T @ W
+diagonal = jnp.sum(W * W, axis=0)
+
+C = jnp.array([[0.1], [0.2], [-0.1]])
+V = factor.whiten(C)
+cross_reduction = W.T @ V  # B.T @ A^{-1} @ C
+```
+
+Use `factor.quadratic(B)` when only the diagonal of `B.T @ A^{-1} @ B` is
+needed, without constructing an `(r,r)` matrix. Retain `W` to reuse it in
+Gram or cross products.
+
+The output rows are in the factor's **whitened coordinates**. Columns retain
+their input order.
+`PermutedCholesky.whiten(B)` handles the input permutation internally and solves
+`physical_factor @ W = B[order]`, without permuting the output back.
+Cross products require results from the same factor state.
 
 ### Modifications
 
@@ -153,8 +181,9 @@ and more numerically stable.
 You still work with the original ordering. For example, replacing `b` with `e`
 in `[a, b, c, d]` leaves the stored factor ordered as `[a, c, d, e]`, but the
 object presents `[a, e, c, d]` to the caller. It translates indices and rearranges
-vectors internally, so `replace`, `solve` and the other methods use the same
-input and output ordering as `Cholesky`.
+vectors internally, so inputs and solutions returned by `solve` retain logical
+order. `whiten` returns the stored factor's whitened coordinates, as described
+above.
 
 ```python
 from cholops import PermutedCholesky

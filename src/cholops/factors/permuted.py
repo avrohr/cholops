@@ -17,7 +17,7 @@ from ..tensors import (
 )
 from ..tensors._indexing import _indices, _keep_many
 from ..tensors._validation import _blocks, _factor, _index, _vector
-from ._consumers import _logdet, _quadratic, _rhs, _solve
+from ._consumers import _logdet, _matrix_rhs, _quadratic, _rhs, _solve, _whiten
 
 
 @jax.tree_util.register_dataclass
@@ -26,8 +26,9 @@ class PermutedCholesky:
     """Physical lower factor and inverse permutations, all dynamic PyTree leaves.
 
     order[physical] is logical; inverse_order[logical] is physical. Construct via
-    from_matrix or from_factor. All method inputs and outputs use logical order.
-    The stored factor is lower triangular in physical order. Floating arrays
+    from_matrix or from_factor. Inputs and solutions returned by solve use
+    logical order. Whitening returns factor coordinates. The stored factor
+    is lower triangular in physical order. Floating arrays
     share a real float32 or float64 dtype, and the represented matrix must remain
     positive definite. Modifications return new objects.
     Supports jit, vmap and first-order differentiation of continuous inputs.
@@ -164,6 +165,20 @@ class PermutedCholesky:
         """Solve the covariance system for canonical vector or matrix RHS."""
         rhs = _rhs(self.physical_factor, rhs)
         return _solve(self.physical_factor, rhs[self.order])[self.inverse_order]
+
+    def whiten(self, rhs: Array) -> Array:
+        """Return W:(n,r) solving physical_factor @ W = rhs[order].
+
+        rhs:(n,r) uses logical order and shares the factor dtype. Use (n,1)
+        for one column. One triangular solve returns whitened coordinates,
+        without an output permutation. Columns retain their input order.
+        W.T @ W equals
+        rhs.T @ A^{-1} @ rhs for the represented matrix A in logical order.
+        Cross products require results from the same factor state.
+        Supports jit, vmap and first-order differentiation.
+        """
+        rhs = _matrix_rhs(self.physical_factor, rhs)
+        return _whiten(self.physical_factor, rhs[self.order])
 
     def logdet(self) -> Array:
         """Log determinant of the represented covariance."""

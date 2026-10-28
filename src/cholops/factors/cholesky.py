@@ -19,7 +19,7 @@ from ..tensors import (
     cholesky,
 )
 from ..tensors._validation import _factor
-from ._consumers import _logdet, _quadratic, _rhs, _solve
+from ._consumers import _logdet, _matrix_rhs, _quadratic, _rhs, _solve, _whiten
 
 
 @jax.tree_util.register_dataclass
@@ -27,9 +27,10 @@ from ._consumers import _logdet, _quadratic, _rhs, _solve
 class Cholesky:
     """Canonical lower factor, stored as one dynamic PyTree leaf ``factor``.
 
-    Construct with from_matrix or from_factor. All inputs and outputs follow
-    the matrix's row and column order. Floating arrays share a real float32 or
-    float64 dtype. The represented matrix must remain positive definite.
+    Construct with from_matrix or from_factor. Inputs and solutions returned by
+    solve follow the matrix's row and column order. Whitening returns factor
+    coordinates. Floating arrays share a real float32 or float64 dtype.
+    The represented matrix must remain positive definite.
     Modifications return new objects, leaving the original unchanged.
     Supports jit, vmap and first-order differentiation.
     """
@@ -59,6 +60,18 @@ class Cholesky:
     def solve(self, rhs: Array) -> Array:
         """Solve the covariance system for a canonical (n,) or (n,r) RHS."""
         return _solve(self.factor, _rhs(self.factor, rhs))
+
+    def whiten(self, rhs: Array) -> Array:
+        """Return W:(n,r) solving L @ W = rhs with one triangular solve.
+
+        rhs:(n,r) follows the matrix order and shares the factor dtype.
+        Use (n,1) for one column. Rows of W are whitened coordinates.
+        Columns retain their input order.
+        W.T @ W equals rhs.T @ A^{-1} @ rhs for the represented matrix A.
+        Cross products require results from the same factor state.
+        Supports jit, vmap and first-order differentiation.
+        """
+        return _whiten(self.factor, _matrix_rhs(self.factor, rhs))
 
     def logdet(self) -> Array:
         """Scalar log determinant of the represented covariance."""
