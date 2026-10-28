@@ -102,7 +102,8 @@ def test_runtime_block_indices_batched_with_shared_factor_and_inputs():
 
 @pytest.mark.parametrize("cls", [Cholesky, PermutedCholesky])
 @pytest.mark.parametrize(
-    "deleted,s", [([4, 1], 3), ([5, 4], 0), ([], 2), (list(range(6)), 2)]
+    "deleted,s",
+    [([3], 0), ([3], 1), ([4, 1], 3), ([5, 4], 0), ([], 2), (list(range(6)), 2)],
 )
 def test_factor_block_modifications_and_consumer_derivatives(cls, deleted, s):
     keep = np.delete(np.arange(6), deleted)

@@ -146,15 +146,13 @@ independent dense or high-precision references. The
 
 ## Block deletion
 
-Deletion uses orthogonal rotations of the retained factor and the deleted-column
-block. `_delete_pushforward` differentiates each rotation, carrying the tangent
-of that block alongside its value. It reuses the saved rotation coefficients
-and output factor.
+Deletion applies one positive rank-one update per deleted column to the retained
+factor. The forward derivative passes the factor tangent through these updates.
+The reverse pass applies their existing reverse rules in reverse order, then
+scatters the cotangents back to the input factor.
 
-The reverse pass starts with the final, zeroed deleted-column block. It undoes
-each rotation to recover the block before that step, then uses `jax.vjp` on the
-single rotation to propagate its cotangents. The retained factor, initial column
-block, output factor and rotation coefficients are saved, rather than all
-intermediate blocks or factors. Work is quadratic in the retained size and linear in the deletion count
-in both directions. Saved storage is quadratic in the retained size plus the
-size of the deleted-column block.
+Each update saves the state needed by its derivative rule. Work and saved
+reverse-mode storage are O(r*m^2), where r is the number deleted and m is the
+number retained. The [block-deletion tests](../tests/test_block_delete.py) compare
+values and both derivative modes with dense recomputation, including runtime
+indices, batching and checkpointed sequences.
