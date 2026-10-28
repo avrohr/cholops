@@ -78,11 +78,7 @@ def _delete(L, indices):
     if indices.size == 0 or m == 0:
         return _delete_last(L, indices.size)
     keep = _keep_many(L.shape[0], indices)
-    return lax.cond(
-        jnp.all(indices == jnp.arange(m, L.shape[0])),
-        lambda: _delete_last(L, indices.size),
-        lambda: _delete_updates(L, indices, keep),
-    )
+    return _delete_updates(L, indices, keep)
 
 
 def chol_delete(L: Array, indices: Array) -> Array:
@@ -94,8 +90,8 @@ def chol_delete(L: Array, indices: Array) -> Array:
     Index values may be traced, but their count is static. Traced values are
     not checked at runtime. Supports jit, vmap and first-order JVP and VJP rules.
 
-    Trailing deletion needs only a slice. Other deletions use r positive updates
-    on the retained factor, with O(r*(n-r)^2) work and reverse-mode storage.
+    Uses r positive updates on the retained factor, with O(r*(n-r)^2) work
+    and reverse-mode storage. Use chol_delete_last for trailing deletion by slicing.
     """
     L = _factor(L)
     return _delete(L, _indices(indices, L.shape[0]))
@@ -124,8 +120,9 @@ def chol_delete_append(L: Array, indices: Array, K: Array, C: Array) -> Array:
     All floating inputs share a real float32/64 dtype.
 
     Supports jit, vmap and first-order JVP and VJP rules. Equal block sizes
-    preserve the factor shape for lax.scan. Trailing deletion uses truncation,
+    preserve the factor shape for lax.scan. Deletion uses positive updates,
     followed by block append with the symmetry-preserving Cholesky reverse rule.
+    Use chol_replace_last for equal-sized trailing-block replacement.
     """
     L = chol_delete(L, indices)
     K, C = _blocks(K, C, L)

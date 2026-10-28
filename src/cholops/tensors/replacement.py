@@ -8,8 +8,8 @@ from jax.scipy.linalg import solve_triangular
 from ._autodiff import tangent_map
 from ._indexing import _insert, _keep, _principal
 from ._validation import _factor, _index, _scalar, _vector
-from .append import _append
-from .deletion import chol_delete_append
+from .append import _append, _append_block
+from .deletion import _delete_last
 from .rank_one import _backward_rhs, _exclusive_prefix, _update_bwd, _update_fwd
 
 
@@ -200,4 +200,4 @@ def chol_replace_last(L: Array, K: Array, C: Array) -> Array:
         raise ValueError("K must have shape (n-r,r), with 0 <= r <= n")
     if K.dtype != L.dtype or C.dtype != L.dtype:
         raise TypeError("L, K and C must have the same dtype")
-    return chol_delete_append(L, jnp.arange(m, L.shape[0]), K, C)
+    return _append_block(_delete_last(L, r), K, C)

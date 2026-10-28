@@ -82,7 +82,7 @@ The result has order `[a, e, c, d]` for `replace`, or
 `[a, c, d, e]` for `delete_append`. Subsequent inputs must follow that order.
 Deletion renumbers the remaining indices from zero.
 
-`replace_last` wraps `delete_append` with equal-sized trailing blocks. It keeps
+`replace_last` combines trailing deletion by slicing with block append. It keeps
 the leading factor and recomputes only the trailing block.
 This makes small trailing-block replacements efficient and avoids the downdate
 used by general index-preserving replacement.

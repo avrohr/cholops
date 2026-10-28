@@ -69,7 +69,7 @@ The [direct tensor example](../examples/tensor_operations.py) demonstrates both
 replacement orderings, rearranges the right-hand side and compares the solutions
 in a common order.
 
-`chol_replace_last` is a convenience wrapper around `chol_delete_append` that replaces the last `r` rows and columns together, with `r` inferred from `C`. It keeps the factor of the unchanged leading block and computes only the replacement block. This makes small trailing-block replacements fast and avoids the downdates needed for general replacement, improving numerical stability. The resulting matrix must still be positive definite.
+`chol_replace_last` combines trailing deletion by slicing with block append to replace the last `r` rows and columns, with `r` inferred from `C`. It keeps the factor of the unchanged leading block and computes only the replacement block. This makes small trailing-block replacements fast and avoids the downdates needed for general replacement, improving numerical stability. The resulting matrix must still be positive definite.
 
 ## Preconditions and failures
 
