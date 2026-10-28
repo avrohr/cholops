@@ -106,11 +106,11 @@ def _delete_pushforward(saved, dL):
 
 
 @jax.custom_jvp
-def _delete_rotations(L, indices, keep):
+def _delete(L, indices, keep):
     return _delete_fwd(L, indices, keep)[0]
 
 
-@_delete_rotations.defjvp
+@_delete.defjvp
 def _delete_jvp(primals, tangents):
     L, indices, keep = primals
     dL, _, _ = tangents
@@ -143,7 +143,7 @@ def chol_delete(L: Array, indices: Array) -> Array:
     if indices.size == L.shape[0]:
         return L[:0, :0]
     keep = _keep_many(L.shape[0], indices)
-    return _delete_rotations(L, indices, keep)
+    return _delete(L, indices, keep)
 
 
 def chol_delete_last(L: Array, r: int) -> Array:
