@@ -1,6 +1,6 @@
 """Dense Cholesky modifications using ordinary JAX operations."""
 
-from .factors import Cholesky, PermutedCholesky
+from .factors import Cholesky, PaddedCholesky, PermutedCholesky
 from .tensors import (
     chol_append,
     chol_delete,
@@ -17,6 +17,7 @@ from .tensors import (
 __all__ = [
     "Cholesky",
     "PermutedCholesky",
+    "PaddedCholesky",
     "cholesky",
     "chol_append",
     "chol_delete",

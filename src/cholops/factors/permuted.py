@@ -17,6 +17,7 @@ from ..tensors import (
 )
 from ..tensors._indexing import _indices, _keep_many
 from ..tensors._validation import _blocks, _factor, _index, _replacement, _vector
+from ._append import _append_solution
 from ._consumers import _logdet, _matrix_rhs, _quadratic, _rhs, _solve, _whiten
 
 
@@ -78,6 +79,28 @@ class PermutedCholesky:
             jnp.concatenate((self.order, last)),
             jnp.concatenate((self.inverse_order, last)),
         )
+
+    def append_solve(
+        self, K: Array, C: Array, *, solution: Array, rhs: Array
+    ) -> tuple["PermutedCholesky", Array]:
+        """Append a block and update a solution, with inputs in logical order.
+
+        K:(n,r), C:(r,r), solution:(n,), rhs:(n+r,) share the factor dtype.
+        solution must solve the old system for rhs[:n]. Those RHS entries
+        must be unchanged. Returned coefficients follow the new logical order.
+        """
+        updated = self.append(K, C)
+        L = self.physical_factor
+        n = L.shape[0]
+        solution = _vector(solution, n, L, "solution")
+        rhs = _vector(rhs, updated.physical_factor.shape[0], L, "rhs")
+        coefficients = _append_solution(
+            updated.physical_factor,
+            jnp.asarray(K)[self.order],
+            solution[self.order],
+            rhs[n:],
+        )
+        return updated, coefficients[updated.inverse_order]
 
     def delete(self, indices: Array) -> "PermutedCholesky":
         """Delete logical indices:(r,), preserving survivor order.

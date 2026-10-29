@@ -18,7 +18,8 @@ from ..tensors import (
     chol_replace_last,
     cholesky,
 )
-from ..tensors._validation import _factor
+from ..tensors._validation import _factor, _vector
+from ._append import _append_solution
 from ._consumers import _logdet, _matrix_rhs, _quadratic, _rhs, _solve, _whiten
 
 
@@ -90,6 +91,24 @@ class Cholesky:
         Use (n,1) and (1,1) arrays for a single row and column.
         """
         return type(self)(chol_append(self.factor, K, C))
+
+    def append_solve(
+        self, K: Array, C: Array, *, solution: Array, rhs: Array
+    ) -> tuple["Cholesky", Array]:
+        """Append a block and update a solution using the block factorization.
+
+        K:(n,r), C:(r,r), solution:(n,), rhs:(n+r,) share the factor dtype.
+        solution must solve the old system for rhs[:n]. Those RHS entries
+        must be unchanged. Returns the appended factor and its new solution.
+        """
+        updated = self.append(K, C)
+        n = self.factor.shape[0]
+        solution = _vector(solution, n, self.factor, "solution")
+        rhs = _vector(rhs, updated.factor.shape[0], self.factor, "rhs")
+        coefficients = _append_solution(
+            updated.factor, jnp.asarray(K), solution, rhs[n:]
+        )
+        return updated, coefficients
 
     def delete(self, indices: Array) -> "Cholesky":
         """Delete indices:(r,), preserving survivor order and returning size n-r.
