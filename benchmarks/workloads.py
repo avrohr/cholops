@@ -146,16 +146,12 @@ def _add_operation_phases(
 def _operation(name, L, params, index):
     if name == "delete":
         return chol_delete(L, index[None])
-    if name == "delete_append":
-        return chol_delete_append(
-            L, index[None], params[0][:, None], params[1].reshape(1, 1)
-        )
-    if name in ("replace", "diag_update"):
-        functions = {
-            "replace": chol_replace,
-            "diag_update": chol_diag_update,
-        }
-        return functions[name](L, index, *params)
+    if name in ("replace", "delete_append"):
+        operation = chol_replace if name == "replace" else chol_delete_append
+        selected = index if name == "replace" else index[None]
+        return operation(L, selected, params[0][:, None], params[1].reshape(1, 1))
+    if name == "diag_update":
+        return chol_diag_update(L, index, *params)
     functions = {
         "append": chol_append,
         "replace_last": chol_replace_last,
@@ -270,10 +266,7 @@ def _sequence(implementation):
             X = X.at[i].set(new)
             rhs = X[:, 0]
             if implementation in ("canonical", "managed"):
-                if implementation == "managed":
-                    state = state.replace(i[None], k[:, None], c.reshape(1, 1))
-                else:
-                    state = state.replace(i, k, c)
+                state = state.replace(i, k[:, None], c.reshape(1, 1))
                 value = (state.logdet() + state.quadratic(rhs)) / (2 * n)
             else:
                 # Retain the covariance, avoiding reconstruction from L.

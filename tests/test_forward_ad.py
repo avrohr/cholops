@@ -56,10 +56,8 @@ def test_replacement_tangent_all_inputs_and_duality(index, append):
 
     def evaluate(i, *args):
         def operation(*xs):
-            return (
-                fn(xs[0], i[None], xs[1][:, None], xs[2].reshape(1, 1))
-                if append
-                else fn(xs[0], i, xs[1], xs[2])
+            return fn(
+                xs[0], i[None] if append else i, xs[1][:, None], xs[2].reshape(1, 1)
             )
 
         value, tangent = jax.jvp(operation, args, tangents)
@@ -98,7 +96,12 @@ def test_jacfwd_matches_jacrev_and_independent_dense(name):
                 covariance(L)[jnp.array([0, 2])[:, None], jnp.array([0, 2])[None, :]]
             )
     else:
-        x, fn = L, lambda L: chol_replace(L, jnp.asarray(1), u[:2], 1.5)
+        x, fn = (
+            L,
+            lambda L: chol_replace(
+                L, 1, u[:2, None], jnp.array([[1.5]], dtype=L.dtype)
+            ),
+        )
 
         def ref(L):
             return replaced(L, 1, u[:2], 1.5)
@@ -151,11 +154,12 @@ def test_batched_dynamic_indices_shared_tangents_and_unused_triangle():
     for fn in (chol_replace, chol_delete_append):
 
         def mapped(L, k, c):
-            if fn is chol_delete_append:
-                return jax.vmap(fn, (0, 0, None, None))(
-                    L, indices[:, None], k[:, None], c.reshape(1, 1)
-                )
-            return jax.vmap(fn, (0, 0, None, None))(L, indices, k, c)
+            return jax.vmap(fn, (0, 0, None, None))(
+                L,
+                indices[:, None] if fn is chol_delete_append else indices,
+                k[:, None],
+                c.reshape(1, 1),
+            )
 
         def ref(L, k, c):
             return jax.vmap(
@@ -200,10 +204,8 @@ def test_matrix_to_managed_sequence_to_consumers_both_modes(cls):
             X = X.at[i].set(new)
             if recompute:
                 factor = cls.from_matrix(matrix(X))
-            elif cls is PermutedCholesky:
-                factor = factor.replace(i[None], k[:, None], c.reshape(1, 1))
             else:
-                factor = factor.replace(i, k, c)
+                factor = factor.replace(i, k[:, None], c.reshape(1, 1))
             rhs = X[:, 0]
             score = factor.logdet() + factor.quadratic(rhs) + jnp.sum(factor.solve(rhs))
             return (factor, X), score
@@ -267,7 +269,7 @@ def test_conditioned_jvp_against_decimal(operation):
         tangents = jnp.tril(direction(L)), direction(k), direction(c)
 
         def fn(L, k, c):
-            return chol_replace(L, jnp.asarray(index), k, c)
+            return chol_replace(L, jnp.asarray(index), k[:, None], c.reshape(1, 1))
 
     with localcontext() as ctx:
         ctx.prec = 80

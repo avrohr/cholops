@@ -36,7 +36,7 @@ def main():
 
     # Replace b with e at index 1. The cross-covariances follow the retained
     # order [a, c, d]. Both the factor and observations now have order [a, e, c, d].
-    factor = factor.replace(1, jnp.array([0.15, 0.1, 0.2]), 1.2)
+    factor = factor.replace(1, jnp.array([[0.15], [0.1], [0.2]]), jnp.array([[1.2]]))
     observations = observations.at[1].set(-0.3)
 
     # Remove a from both objects. The surviving order is [e, c, d].

@@ -52,7 +52,7 @@ x = factor.solve(
 # PermutedCholesky replaces by deletion and appending,
 # while managing logical ordering transparently.
 managed = PermutedCholesky.from_matrix(A)
-updated = managed.replace(jnp.array([1]), jnp.array([[0.2], [0.1]]), jnp.array([[1.3]]))
+updated = managed.replace(1, jnp.array([[0.2], [0.1]]), jnp.array([[1.3]]))
 x_new = updated.solve(b)  # Inputs and outputs remain in logical order.
 
 
@@ -90,7 +90,7 @@ imported directly from `cholops`:
 | `chol_append` | Append a block of covariance rows and columns. |
 | `chol_delete` | Delete selected variables, preserving survivor order. |
 | `chol_delete_last` | Delete a trailing block by slicing the factor. |
-| `chol_replace` | Replace one covariance row and column at the same index. |
+| `chol_replace` | Replace a consecutive block of variables at the same positions. |
 | `chol_delete_append` | Delete selected variables and append a new block last. |
 | `chol_replace_last` | Replace a trailing block of variables. |
 | `chol_diag_update` | Add a signed value to one covariance diagonal entry. |

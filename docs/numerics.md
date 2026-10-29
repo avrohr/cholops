@@ -76,11 +76,15 @@ and its derivative rules. Work and saved reverse-mode storage grow linearly with
 the number of deleted variables and quadratically with the retained size.
 `delete_last` only slices the factor.
 Delete-and-append extends the retained factor with the new block.
-Replacing a variable at its original index needs an additional downdate of the
-trailing factor, unless the variable is already last. Avoiding this downdate is
-one reason to use [PermutedCholesky](factors.md#permutedcholesky) for repeated
-replacements. Replacing a trailing block with `replace_last` also avoids this
-downdate by keeping the leading factor and factoring only the new remainder.
+Canonical replacement of one variable combines a positive update and a downdate.
+For multiple variables, it applies the covariance change together using small
+linear systems and matrix products. This reduces repeated passes over the factor.
+The block calculation solves with the old factor, so a better-conditioned target
+does not remove sensitivity to the old matrix. Float64 is preferable for these
+block replacements when the old matrix is poorly conditioned.
+[PermutedCholesky](factors.md#permutedcholesky) instead uses deletion and block
+append. Replacing a trailing block with `replace_last` keeps the leading factor
+and factors only the new remainder.
 
 `chol_rank1` uses a separate algorithm because it must handle positive, negative
 and zero weights. The weight enters the calculation directly, so its derivative

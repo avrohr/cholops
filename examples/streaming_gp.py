@@ -44,7 +44,7 @@ def window_losses(log_length_scale, initial_x, initial_y, incoming_x, incoming_y
         keep = positions + (positions >= index)
         K = kernel(x[keep], new_x[None], log_length_scale)
         C = jnp.array([[1.0 + NOISE_VARIANCE]], dtype=K.dtype)
-        factor = factor.replace(index[None], K, C)
+        factor = factor.replace(index, K, C)
         x = x.at[index].set(new_x)
         y = y.at[index].set(new_y)
         loss = 0.5 * (

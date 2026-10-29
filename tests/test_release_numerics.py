@@ -49,7 +49,7 @@ def test_large_factor_and_both_derivative_modes(n, operation, position):
             return chol_rank1_positive(*a)
         if operation == "delete":
             return chol_delete(a[0], jnp.asarray([i]))
-        return chol_replace(a[0], jnp.asarray(i), *a[1:])
+        return chol_replace(a[0], jnp.asarray(i), a[1][:, None], a[2].reshape(1, 1))
 
     def reference(L, *parameters):
         L = jnp.tril(L)

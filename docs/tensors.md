@@ -23,7 +23,7 @@ Use `jax.vmap` for batches of modifications.
 | `chol_append(L, K, C)` | Factor of `[[A,K],[K.T,C]]`; `K:(n,r)`, symmetric `C:(r,r)`; output `(n+r,n+r)` | JVP and reverse |
 | `chol_delete(L, indices)` | Remove `r` variables at `indices:(r,)`; survivor order preserved; output `(n-r,n-r)` | JVP and reverse |
 | `chol_delete_last(L, r)` | Remove the last `r` variables by slicing; `r` is static | JVP and reverse |
-| `chol_replace(L, index, k, kappa)` | Replace row/column at the same index; `k:(n-1,)` in survivor order | JVP and reverse |
+| `chol_replace(L, start, K, C)` | Replace `start:start+r` at their original positions; `K:(n-r,r)`, symmetric `C:(r,r)` | JVP and reverse |
 | `chol_delete_append(L, indices, K, C)` | Delete `indices:(r,)`, append `s` variables with `K:(n-r,s)`, symmetric `C:(s,s)`; output `(n-r+s,n-r+s)` | JVP and reverse |
 | `chol_replace_last(L, K, C)` | Replace final `r` variables; `K:(n-r,r)`, symmetric `C:(r,r)` | JVP and reverse |
 | `chol_diag_update(L, index, delta)` | Factor of `A + delta * outer(e_index,e_index)`; signed scalar `delta` | JVP and reverse, including zero |
@@ -38,6 +38,12 @@ Indices must be distinct and refer to the input before deletion. Their order
 does not matter. An empty index array leaves the factor unchanged, and deleting
 all variables returns an empty factor. For `chol_delete_append`, rows of `K`
 follow survivor order and the appended block may have a different size.
+
+Replacement takes the block's starting index, `start`, and infers its size from
+`C.shape[0]`. The rows of `K` describe the variables before the block, then those
+after it. Its columns and both axes of `C` follow the new block's order.
+`start` may change inside `jit`, while the block size stays fixed. An empty block
+leaves the factor unchanged, and replacing all variables factors `C`.
 
 Every operation supports `jit`, `vmap`, first-order `jvp`/`jacfwd`, and
 `vjp`/`grad`/`jacrev` on its documented domain. `jax.linearize` can cache a
@@ -54,9 +60,10 @@ weight derivative.
 
 Suppose the matrix describes four variables in the order `[a, b, c, d]`, and
 you want to replace `b` with a new variable `e`. Since indices start at zero,
-pass `index=1` to `chol_replace`, or `indices=jnp.array([1])` to
-`chol_delete_append`. The latter takes the new entries as a column `(3,1)`
-and the new diagonal as a block `(1,1)`.
+pass `start=1` to `chol_replace`, or `indices=jnp.array([1])` to
+`chol_delete_append`.
+Both take the new entries as a column `(3,1)` and the new diagonal as a block
+`(1,1)`.
 
 - `chol_replace` puts `e` in the old position of `b`. The returned factor
   represents variables in the order `[a, e, c, d]`.

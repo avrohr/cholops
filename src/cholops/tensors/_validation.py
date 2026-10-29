@@ -33,6 +33,19 @@ def _blocks(K: Array, C: Array, L: Array) -> tuple[Array, Array]:
     return K, C
 
 
+def _replacement(start, K, C, L):
+    """Check inputs for replacing r consecutive variables."""
+    K, C = jnp.asarray(K), jnp.asarray(C)
+    if C.ndim != 2 or C.shape[0] != C.shape[1]:
+        raise ValueError("C must be a square covariance block")
+    n, r = L.shape[0], C.shape[0]
+    if r > n or K.shape != (n - r, r):
+        raise ValueError("K must have shape (n-r,r), with 0 <= r <= n")
+    if K.dtype != L.dtype or C.dtype != L.dtype:
+        raise TypeError("L, K and C must have the same dtype")
+    return _index(start, n - r + 1), K, C
+
+
 def _scalar(x: Array | float, L: Array, name: str) -> Array:
     # Python scalars follow the factor precision; typed arrays are never cast.
     x = jnp.asarray(x, dtype=L.dtype) if isinstance(x, (float, int)) else jnp.asarray(x)

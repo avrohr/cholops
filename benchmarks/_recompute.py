@@ -12,7 +12,7 @@ def replace_matrix(A, index, k, kappa):
 
 
 def replace(L, index, k, kappa):
-    """Recompute the factor, with the same inputs as chol_replace."""
+    """Recompute after replacing one variable, using vector/scalar inputs."""
     L = jnp.tril(L)
     A = L @ L.T
     A = replace_matrix(A, index, k, kappa)

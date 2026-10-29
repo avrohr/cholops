@@ -36,7 +36,7 @@ def main():
     # Both functions take covariances with the survivors in order [a, c, d].
     cross = jnp.array([0.15, 0.1, 0.2])
     variance = 1.2
-    replaced = chol_replace(lower, 1, cross, variance)
+    replaced = chol_replace(lower, 1, cross[:, None], jnp.array([[variance]]))
     appended = chol_delete_append(
         lower,
         jnp.asarray([1]),

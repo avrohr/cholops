@@ -16,7 +16,7 @@ from ..tensors import (
     cholesky,
 )
 from ..tensors._indexing import _indices, _keep_many
-from ..tensors._validation import _blocks, _factor, _index, _vector
+from ..tensors._validation import _blocks, _factor, _index, _replacement, _vector
 from ._consumers import _logdet, _matrix_rhs, _quadratic, _rhs, _solve, _whiten
 
 
@@ -93,32 +93,25 @@ class PermutedCholesky:
         order = survivors - jnp.searchsorted(indices, survivors)
         return type(self)(result, order, jnp.argsort(order))
 
-    def replace(self, indices: Array, K: Array, C: Array) -> "PermutedCholesky":
-        """Replace logical slots indices:(r,) using deletion and block append.
+    def replace(self, start: Array | int, K: Array, C: Array) -> "PermutedCholesky":
+        """Replace logical variables start:start+r using deletion and block append.
 
-        K:(n-r,r) has rows in logical survivor order and columns in the supplied
-        indices order. C:(r,r) follows that same indices order on both axes.
-        Indices must be distinct and in bounds. C must be symmetric and the
-        target positive definite. Floating inputs share the factor dtype.
-        Use (1,), (n-1,1) and (1,1) arrays for a single replacement.
+        C:(r,r) describes the new block. K:(n-r,r) has rows for the variables
+        before and after it, in logical order. start may be traced and must
+        be in [0,n-r]. C must be symmetric and the target positive definite.
+        Floating inputs share the factor dtype. Use (n-1,1) and (1,1) arrays
+        for a single replacement.
         Logical order and shape are preserved.
         """
         L = self.physical_factor
         n = L.shape[0]
-        indices = jnp.asarray(indices)
-        sorted_indices = _indices(indices, n)
-        r = indices.size
-        K, C = jnp.asarray(K), jnp.asarray(C)
-        if C.shape != (r, r):
-            raise ValueError("C must have shape (r,r), matching the replaced indices")
-        if K.shape != (n - r, r):
-            raise ValueError("K must have shape (n-r,r)")
-        if K.dtype != L.dtype or C.dtype != L.dtype:
-            raise TypeError("L, K and C must have the same dtype")
+        start, K, C = _replacement(start, K, C, L)
+        r = C.shape[0]
+        indices = start + jnp.arange(r)
         physical = jnp.sort(self.inverse_order[indices])
         survivors = self.order[_keep_many(n, physical)]
         # Locate the physical survivors in K's compact logical row order.
-        compact = survivors - jnp.searchsorted(sorted_indices, survivors)
+        compact = survivors - r * (survivors >= start)
         result = chol_delete_append(L, physical, K[compact], C)
         order = jnp.concatenate((survivors, indices))
         inverse = self.inverse_order - jnp.searchsorted(physical, self.inverse_order)

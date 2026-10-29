@@ -23,8 +23,8 @@ K = jnp.array([[2.0, 0.3, 0.1], [0.3, 1.5, 0.2], [0.1, 0.2, 1.0]])
 y = jnp.array([1.0, -0.5, 0.2])
 factor = Cholesky.from_matrix(K)
 
-# Replace row and column 1. k contains the new entries for indices [0, 2].
-updated = factor.replace(1, jnp.array([0.2, 0.1]), 1.2)
+# Replace row and column 1. K contains the new entries for indices [0, 2].
+updated = factor.replace(1, jnp.array([[0.2], [0.1]]), jnp.array([[1.2]]))
 L = updated.factor
 alpha = updated.solve(y)  # Solve the modified matrix system.
 logdet = updated.logdet()
@@ -91,7 +91,7 @@ Each method returns a new `Cholesky` object and leaves the original unchanged.
 | `append(K, C)` | Add `r` rows and columns, with `K:(n,r)` and symmetric `C:(r,r)` |
 | `delete(indices)` | Remove `indices:(r,)`, preserving the order of the remaining entries |
 | `delete_last(r)` | Remove the final `r` rows and columns by slicing; `r` is static |
-| `replace(index, k, kappa)` | Replace a row and column at the same index, with `k:(n-1,)` and scalar diagonal `kappa` |
+| `replace(start, K, C)` | Replace `start:start+r` at their original positions, with `K:(n-r,r)` and symmetric `C:(r,r)` |
 | `delete_append(indices, K, C)` | Delete `indices:(r,)` and append `s` variables, with `K:(n-r,s)` and symmetric `C:(s,s)` |
 | `replace_last(K, C)` | Replace the final `r` rows and columns, with `K:(n-r,r)` and `C:(r,r)` |
 | `diag_update(index, delta)` | Add signed `delta` to one matrix diagonal entry |
@@ -103,8 +103,11 @@ for one variable. The rows of `K` follow the existing variable order.
 
 `delete` and `delete_append` take an integer array of distinct indices, including
 `jnp.array([i])` for one variable. Indices refer to the input before deletion.
-For `replace`, supply `k` in the order of the entries you are keeping.
-For `delete_append`, the rows of `K` follow that order. Replacing `b` with `e`
+For `replace`, `start` gives the first variable and `C.shape[0]` gives the block
+size. The rows of `K` describe the variables before the block, then those after
+it. Its columns and both axes of `C` follow the new block's order. Use block
+shapes even for one replacement. `start` can change inside `jit`.
+For `delete_append`, the rows of `K` follow survivor order. Replacing `b` with `e`
 in `[a, b, c, d]` therefore uses entries in the order `[a, c, d]`.
 The result has order `[a, e, c, d]` for `replace`, or
 `[a, c, d, e]` for `delete_append`. Subsequent inputs must follow that order.
@@ -137,8 +140,8 @@ compiled function and returned from it:
 
 ```python
 @jax.jit
-def replace_and_score(factor, index, k, kappa, y):
-    factor = factor.replace(index, k, kappa)
+def replace_and_score(factor, start, K, C, y):
+    factor = factor.replace(start, K, C)
     score = 0.5 * (factor.logdet() + factor.quadratic(y))
     return factor, score
 ```
@@ -189,7 +192,7 @@ above.
 from cholops import PermutedCholesky
 
 managed = PermutedCholesky.from_matrix(K)
-managed = managed.replace(jnp.array([1]), jnp.array([[0.2], [0.1]]), jnp.array([[1.2]]))
+managed = managed.replace(1, jnp.array([[0.2], [0.1]]), jnp.array([[1.2]]))
 alpha = managed.solve(y)  # y and alpha still follow logical order [0, 1, 2].
 
 expanded = managed.append(jnp.array([[0.1], [0.2], [0.1]]), jnp.array([[1.0]]))
@@ -207,14 +210,11 @@ matrix order.
 can be scattered throughout the stored factor, so they do not form a physical
 trailing block.
 
-Its `replace(indices, K, C)` accepts a block, with `indices:(r,)`, `K:(n-r,r)`
-and symmetric `C:(r,r)`. The rows of `K` follow the remaining logical indices.
-Its columns and both axes of `C` follow the supplied `indices` order.
-For example, `indices = jnp.array([3, 1])` replaces slots 3 and 1. The columns
-of `K` describe their replacements in that order, and its rows describe
-the unchanged slots `[0, 2, 4, ...]`. Each replacement keeps its logical slot.
-Use block-shaped arrays even for one replacement, as above.
-`Cholesky.replace` still replaces one variable with a vector and scalar.
+Both classes use `replace(start, K, C)` to replace a consecutive block in
+logical order. For example, `start=1` with `C:(2,2)` replaces slots 1 and 2.
+The rows of `K` describe the unchanged slots `[0, 3, 4, ...]`, and its two
+columns describe the replacements for slots 1 and 2. Those slots may be
+scattered in the stored factor, which `PermutedCholesky` handles internally.
 
 For all supported methods, supply indices and arrays in logical order.
 `replace` preserves logical positions. `delete_append` deliberately moves the

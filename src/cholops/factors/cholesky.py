@@ -103,14 +103,15 @@ class Cholesky:
         """Remove the last r variables by slicing. r must be static and in [0,n]."""
         return type(self)(chol_delete_last(self.factor, r))
 
-    def replace(self, index: Array | int, k: Array, kappa: Array | float) -> "Cholesky":
-        """Replace at index, preserving every other index and the (n,n) shape.
+    def replace(self, start: Array | int, K: Array, C: Array) -> "Cholesky":
+        """Replace variables start:start+r, preserving order and shape.
 
-        k:(n-1,) follows survivor order. kappa is the new diagonal.
-        The target must be positive definite and index must be in [0,n).
-        Traced indices are not checked at runtime.
+        C:(r,r) describes the new block. K:(n-r,r) has rows for the variables
+        before and after it, in their original order. start may be traced and
+        must be in [0,n-r]. The target must be positive definite.
+        Use (n-1,1) and (1,1) arrays for one replacement.
         """
-        return type(self)(chol_replace(self.factor, index, k, kappa))
+        return type(self)(chol_replace(self.factor, start, K, C))
 
     def delete_append(self, indices: Array, K: Array, C: Array) -> "Cholesky":
         """Delete indices:(r,) and append s variables, returning size n-r+s.

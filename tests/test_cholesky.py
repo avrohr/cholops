@@ -49,12 +49,14 @@ def modified_matrix(A, method, args):
 def modify(state, method, args):
     if method == "delete":
         return state.delete(jnp.array([2]))
-    if method == "delete_append":
-        return state.delete_append(
-            jnp.array([2]), args[0][:, None], args[1].reshape(1, 1)
+    if method in ("replace", "delete_append"):
+        return getattr(state, method)(
+            2 if method == "replace" else jnp.array([2]),
+            args[0][:, None],
+            args[1].reshape(1, 1),
         )
-    if method in ("replace", "diag_update"):
-        return getattr(state, method)(jnp.array(2), *args)
+    if method == "diag_update":
+        return state.diag_update(jnp.array(2), *args)
     return getattr(state, method)(*args)
 
 
