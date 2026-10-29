@@ -1,4 +1,4 @@
-"""Index-preserving single-variable and trailing-block replacement."""
+"""Index-preserving block replacement and trailing-block replacement."""
 
 import jax
 import jax.numpy as jnp
@@ -7,8 +7,10 @@ from jax.scipy.linalg import solve_triangular
 
 from ._autodiff import tangent_map
 from ._indexing import _insert, _keep, _principal
-from ._validation import _factor, _index, _scalar, _vector
-from .append import _append
+from ._validation import _factor, _replacement
+from .append import _append_block
+from .deletion import _delete_last
+from .factorization import cholesky
 from .rank_one import _backward_rhs, _exclusive_prefix, _update_bwd, _update_fwd
 
 
@@ -63,11 +65,7 @@ def _leading_matrix(retained, leading):
 
 
 @jax.named_call
-def _replace_forward(L, index, k, kappa):
-    keep = _keep(L.shape[0], index)
-    base = _principal(L, index)
-    removed_column = jnp.where(keep > index, L[keep, index], 0)
-    retained, positive = _update_fwd(base, removed_column)
+def _insert_forward(retained, index, k, kappa):
     leading = jnp.arange(k.shape[0]) < index
 
     def leading_solve(_):
@@ -82,16 +80,13 @@ def _replace_forward(L, index, k, kappa):
     result = _insert(
         jnp.where(leading[None, :], retained, remainder), index, row, column, diagonal
     )
-    # retained is shared by both rank-one rules; save it once. The covariance
-    # inputs and assembled output need not be retained by the integrated VJP.
-    saved = (index, positive, row, diagonal, negative[1:])
+    saved = (index, retained, row, diagonal, negative[1:])
     return result, saved
 
 
 @jax.named_call
-def _replace_backward(saved, cotangent):
-    index, positive, row, diagonal, negative_tail = saved
-    retained = positive[-1]
+def _insert_backward(saved, cotangent):
+    index, retained, row, diagonal, negative_tail = saved
     column = negative_tail[0]
     leading = jnp.arange(row.shape[0]) < index
     keep = _keep(cotangent.shape[0], index)
@@ -119,56 +114,128 @@ def _replace_backward(saved, cotangent):
     )
     grad_k = grad_k + leading_rhs
     grad_retained = jnp.tril(grad_retained - leading_rhs[:, None] * row[None, :])
-    grad_base, grad_removed = _update_bwd(positive, grad_retained)
-    grad_L = _insert(
-        grad_base,
+    return grad_retained, grad_k, grad_kappa
+
+
+def _replace_one_forward(L, index, k, kappa):
+    keep = _keep(L.shape[0], index)
+    base = _principal(L, index)
+    column = jnp.where(keep > index, L[keep, index], 0)
+    retained, positive = _update_fwd(base, column)
+    Y, (_, _, row, diagonal, negative) = _insert_forward(retained, index, k, kappa)
+    return Y, (index, positive, row, diagonal, negative)
+
+
+def _replace_one_backward(saved, cotangent):
+    index, positive, row, diagonal, negative = saved
+    dR, dk, dc = _insert_backward(
+        (index, positive[-1], row, diagonal, negative), cotangent
+    )
+    base, column = _update_bwd(positive, dR)
+    keep = _keep(cotangent.shape[0], index)
+    dL = _insert(
+        base,
         index,
         jnp.zeros_like(row),
-        jnp.where(keep > index, grad_removed, 0),
+        jnp.where(keep > index, column, 0),
         jnp.zeros_like(diagonal),
     )
-    return grad_L, grad_k, grad_kappa
+    return dL, dk, dc
 
 
 @jax.custom_jvp
-@jax.named_call
-def _replace_interior(L, index, k, kappa):
-    return _replace_forward(L, index, k, kappa)[0]
+def _replace_one(L, index, k, kappa):
+    return _replace_one_forward(L, index, k, kappa)[0]
 
 
-@_replace_interior.defjvp
-def _replace_jvp(primals, tangents):
-    Y, saved = _replace_forward(*primals)
-    dL, _, dk, dkappa = tangents
-    return Y, tangent_map(_replace_backward, saved, (dL, dk, dkappa), Y)
+@_replace_one.defjvp
+def _replace_one_jvp(primals, tangents):
+    Y, saved = _replace_one_forward(*primals)
+    dL, _, dk, dc = tangents
+    return Y, tangent_map(_replace_one_backward, saved, (dL, dk, dc), Y)
 
 
-def chol_replace(L: Array, index: Array | int, k: Array, kappa: Array | float) -> Array:
-    """Replace one covariance row/column without changing any other index.
+def _replace_block(L, start, K, C):
+    n, r = L.shape[0], C.shape[0]
+    positions = jnp.arange(n - r)
+    keep = positions + r * (positions >= start)
+    new_columns = jnp.zeros((n, r), L.dtype).at[keep].set(K)
+    new_columns = lax.dynamic_update_slice_in_dim(new_columns, C, start, axis=0)
+    old_rows = lax.dynamic_slice_in_dim(L, start, r, axis=0)
+    difference = new_columns - L @ old_rows.T
+    selected = lax.dynamic_update_slice_in_dim(
+        jnp.zeros((n, r), L.dtype), jnp.eye(r, dtype=L.dtype), start, axis=0
+    )
+    U = jnp.concatenate((selected, difference), axis=1)
+    # The covariance change is U J U.T, where J = [[-delta_C, I], [I, 0]].
+    zero, eye = jnp.zeros((r, r), L.dtype), jnp.eye(r, dtype=L.dtype)
+    delta_C = lax.dynamic_slice_in_dim(difference, start, r, axis=0)
+    J_inverse = jnp.block([[zero, eye], [eye, delta_C]])
+    W = solve_triangular(L, U, lower=True)
 
-    L is a real lower Cholesky factor of shape (n,n), n >= 1. k has shape
-    (n-1,) in original index order with index omitted; kappa is the new diagonal.
-    All floating inputs have the same float32/float64 dtype. The upper triangle
-    of L is ignored. The target covariance must be positive definite.
+    # Each leading submatrix gives a small system for one factor column.
+    # These independent 2r-by-2r solves replace the successive full-factor passes.
+    outer = W[:, :, None] * W[:, None, :]
+    prefix = jnp.concatenate(
+        (jnp.zeros_like(outer[:1]), jnp.cumsum(outer, axis=0)[:-1]), axis=0
+    )
+    B = jnp.linalg.solve(J_inverse + prefix, W[..., None])[..., 0]
+    diagonal = jnp.sqrt(1 + jnp.sum(W * B, axis=1))
+    H = B / diagonal[:, None]
 
-    Supports jit, vmap, runtime scalar indices, and first-order JVP and VJP rules for
-    L, k and kappa with quadratic work/storage per operation.
-    index must be in [0,n). Traced indices are not checked at runtime.
-    Near-singular targets remain sensitive to the downdate margin subtraction.
-    Final-position replacement uses a bordering solve without a downdate.
+    # The whitened factor has diagonal `diagonal` and off-diagonal W[i] @ H[j].
+    # Multiply it by L in panels, avoiding either an n-by-n matrix product or
+    # an n-by-n-by-2r array of partial sums.
+    width = min(64, n)
+    padding = (-n) % width
+    padded_L = jnp.pad(L, ((0, padding), (0, padding)))
+    padded_U = jnp.pad(U, ((0, padding), (0, 0)))
+    W = jnp.pad(W, ((0, padding), (0, 0)))
+    H = jnp.pad(H, ((0, padding), (0, 0)))
+    diagonal = jnp.pad(diagonal, ((0, padding),), constant_values=1)
+    size, rank = W.shape
+    panels = size // width
+    factor_panels = padded_L.reshape(size, panels, width).transpose(1, 0, 2)
+    W = W.reshape(panels, width, rank)
+    H = H.reshape(panels, width, rank)
+    local = jnp.tril(W @ H.swapaxes(-1, -2), -1)
+    local += jnp.eye(width, dtype=L.dtype) * diagonal.reshape(panels, 1, width)
+    tail = padded_U[None] - jnp.cumsum(factor_panels @ W, axis=0)
+    result = factor_panels @ local + tail @ H.swapaxes(-1, -2)
+    result = jnp.tril(result.transpose(1, 0, 2).reshape(size, size)[:n, :n])
+    leading = jnp.arange(n) < start
+    return jnp.where(leading[:, None] & leading[None, :], L, result)
+
+
+def chol_replace(L: Array, start: Array | int, K: Array, C: Array) -> Array:
+    """Replace variables start:start+r, preserving their positions and matrix size.
+
+    C:(r,r) describes the new block. K:(n-r,r) has rows for the variables
+    before the block, followed by those after it, in their original order.
+    Its columns follow the new block's order. start is an integer scalar in
+    [0,n-r] and may be traced. r is inferred from C's static shape.
+    r=0 leaves the lower factor unchanged, and r=n factors C.
+    Floating inputs share a real float32/64 dtype. C must be symmetric and
+    the target covariance positive definite.
+
+    One replacement uses a rank-one update and downdate. Larger blocks apply
+    the rank-2r covariance change together, with O(n^2*r + n*r^3) work.
+    The block algorithm solves with the original factor, so its accuracy remains
+    sensitive to that factor's conditioning even if the target is better conditioned.
+    Supports jit, vmap and first-order JVP and VJP rules. C uses the
+    symmetric-input convention. Use chol_replace_last for trailing replacement.
     """
     L = _factor(L)
-    index = _index(index, L.shape[0])
-    k = _vector(k, L.shape[0] - 1, L, "k")
-    kappa = _scalar(kappa, L, "kappa")
-    if L.shape[0] == 1:
-        return _append(L[:0, :0], k, kappa)
-    return lax.cond(
-        index == L.shape[0] - 1,
-        lambda _: _append(L[:-1, :-1], k, kappa),
-        lambda _: _replace_interior(L, index, k, kappa),
-        operand=None,
-    )
+    start, K, C = _replacement(start, K, C, L)
+    n, r = L.shape[0], C.shape[0]
+    if r == 0:
+        return L
+    C = (C + C.T) / 2
+    if r == n:
+        return cholesky(C)
+    if r == 1:
+        return _replace_one(L, start, K[:, 0], C[0, 0])
+    return _replace_block(L, start, K, C)
 
 
 def chol_replace_last(L: Array, K: Array, C: Array) -> Array:
@@ -182,9 +249,10 @@ def chol_replace_last(L: Array, K: Array, C: Array) -> Array:
 
     Returns an (n,n) lower factor, preserving the leading block exactly. r=0
     returns the lower input, and r=n factorizes C. Supports jit, vmap, JVP and
-    reverse AD using native JAX rules. JAX's symmetric-input Cholesky
-    convention applies to C and its tangents. The Schur subtraction can lose
-    relative accuracy when conditional variances are very small.
+    reverse AD using cholops' symmetry-preserving Cholesky reverse rule.
+    The symmetric-input Cholesky convention applies to C and its tangents.
+    The Schur subtraction can lose relative accuracy when conditional variances
+    are very small.
 
     Arithmetic costs O((n-r)^2*r + (n-r)*r^2 + r^3), plus writing the result.
     """
@@ -198,15 +266,4 @@ def chol_replace_last(L: Array, K: Array, C: Array) -> Array:
         raise ValueError("K must have shape (n-r,r), with 0 <= r <= n")
     if K.dtype != L.dtype or C.dtype != L.dtype:
         raise TypeError("L, K and C must have the same dtype")
-    if r == 0:
-        return L
-    leading = L[:m, :m]
-    V = solve_triangular(leading, K, lower=True) if m else K
-    trailing = jnp.linalg.cholesky(C - V.T @ V)
-    return jnp.concatenate(
-        (
-            jnp.concatenate((leading, jnp.zeros_like(K)), axis=1),
-            jnp.concatenate((V.T, trailing), axis=1),
-        ),
-        axis=0,
-    )
+    return _append_block(_delete_last(L, r), K, C)

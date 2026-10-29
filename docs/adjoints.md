@@ -1,6 +1,7 @@
-# Update and replacement adjoints
+# Update, deletion and replacement adjoints
 
-This note explains the formulas in [rank_one.py](../src/cholops/tensors/rank_one.py)
+This note explains the formulas in [rank_one.py](../src/cholops/tensors/rank_one.py),
+[deletion.py](../src/cholops/tensors/deletion.py)
 and [replacement.py](../src/cholops/tensors/replacement.py). It concerns real lower factors
 with positive diagonals and positive-definite targets. Indices are fixed during
 differentiation; factor perturbations are lower triangular. Bars denote
@@ -96,10 +97,10 @@ They do not describe the separate signed-weight recurrence used by
 
 ## Index-preserving replacement
 
-Fix the replaced index $p$. Removing row and column $p$ from the old factor
-gives a lower matrix $D$. Let $w$ be the removed factor column restricted to
-survivors, with entries before $p$ set to zero. The surviving covariance is
-$DD^T+ww^T$, so the positive-update rule gives its factor $R$.
+For a single replacement, fix the replaced index $p$. Removing row and column
+$p$ from the old factor gives a lower matrix $D$. Let $w$ be the removed factor
+column restricted to survivors, with entries before $p$ set to zero. The
+surviving covariance is $DD^T+ww^T$, so the positive-update rule gives its factor $R$.
 
 Let $P=R_{:p,:p}$. The inserted row $a$, diagonal $d$, and column $t$ satisfy
 
@@ -130,15 +131,36 @@ $$
 -\frac{t_{p:}}{d}\,\mathrm{d}d.
 $$
 
-Finally, the positive-update adjoint maps the accumulated cotangent of $R$
-back to $D$ and $w$, and insertion maps those cotangents to the old factor.
-The saved index controls masks and assembly only; the returned cotangents are
-for $L$, $k$ and $\kappa$. Sharing $R$ between the two rank-one rules avoids
-saving it twice. Last-position replacement uses bordering alone, and the
-singleton case is a scalar square root.
+The insertion rule returns cotangents for $R$, $k$ and $\kappa$. The positive-update
+adjoint maps the factor cotangent back to the input. Both steps share one reverse
+rule and the saved factor $R$. Use `chol_replace_last` for
+trailing replacement through bordering alone. Replacing every variable uses
+Cholesky factorization directly.
+
+Multiple-variable replacement instead expresses the covariance change as a
+rank-$2r$ modification. After solving with the old factor, prefix sums of small
+outer products determine the new factor columns through $2r$-by-$2r$ systems.
+Matrix products in panels assemble the result without a dense refactorization.
+JAX differentiates these solves and products directly. The symmetric-input
+convention applies to $C$. This path can amplify errors associated with the old
+factor's conditioning, as described in the [numerical guide](numerics.md).
 
 The [update tests](../tests/test_updates.py),
-[replacement tests](../tests/test_replace.py) and
+[replacement tests](../tests/test_replace.py),
+[block-replacement tests](../tests/test_block_replace.py) and
 [forward-mode tests](../tests/test_forward_ad.py) compare these rules with
 independent dense or high-precision references. The
 [numerical limits](numerics.md#conditioning-and-precision) still apply.
+
+## Block deletion
+
+Deletion applies one positive rank-one update per deleted column to the retained
+factor. The forward derivative passes the factor tangent through these updates.
+The reverse pass applies their existing reverse rules in reverse order, then
+scatters the cotangents back to the input factor.
+
+Each update saves the state needed by its derivative rule. Work and saved
+reverse-mode storage are O(r*m^2), where r is the number deleted and m is the
+number retained. The [block-deletion tests](../tests/test_block_delete.py) compare
+values and both derivative modes with dense recomputation, including runtime
+indices, batching and checkpointed sequences.

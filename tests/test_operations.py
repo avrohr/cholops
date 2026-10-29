@@ -83,11 +83,13 @@ def test_delete_and_delete_append(index, compiled):
     runtime_index = jnp.asarray(index)
     keep = np.delete(np.arange(5), index)
     retained = np.asarray(A)[np.ix_(keep, keep)]
-    assert_factor(delete(L, runtime_index), retained)
+    assert_factor(delete(L, runtime_index[None]), retained)
     k = jnp.linspace(-0.2, 0.3, 4)
     kappa = jnp.asarray(2.0)
     expected = append_matrix(jnp.asarray(retained), k, kappa)
-    assert_factor(replace(L, runtime_index, k, kappa), expected)
+    assert_factor(
+        replace(L, runtime_index[None], k[:, None], kappa.reshape(1, 1)), expected
+    )
 
 
 @pytest.mark.parametrize("index", [0, 2, 4])
@@ -105,13 +107,24 @@ def test_append(n):
     L = factor(n)
     k = jnp.linspace(-0.3, 0.3, n)
     kappa = jnp.asarray(2.0)
-    assert_factor(jax.jit(chol_append)(L, k, kappa), append_matrix(matrix(L), k, kappa))
+    assert_factor(
+        jax.jit(chol_append)(L, k[:, None], kappa.reshape(1, 1)),
+        append_matrix(matrix(L), k, kappa),
+    )
 
 
 def test_singleton_and_empty():
     L = jnp.asarray([[2.0]])
-    assert jax.jit(chol_delete)(L, jnp.asarray(0)).shape == (0, 0)
-    assert_factor(jax.jit(chol_delete_append)(L, 0, jnp.empty(0), 9.0), [[9.0]])
+    assert jax.jit(chol_delete)(L, jnp.asarray([0])).shape == (0, 0)
+    assert_factor(
+        jax.jit(chol_delete_append)(
+            L,
+            jnp.asarray([0]),
+            jnp.empty((0, 1)),
+            jnp.asarray([[9.0]]),
+        ),
+        [[9.0]],
+    )
     assert_factor(chol_diag_update(L, 0, -1.0), [[3.0]])
     empty = jnp.empty((0, 0))
     assert jax.jit(chol_rank1)(empty, jnp.empty(0), -1.0).shape == (0, 0)
@@ -122,14 +135,19 @@ def test_singleton_derivatives():
     grad_L, grad_kappa = jax.jit(
         jax.grad(
             lambda factor_input, kappa: jnp.sum(
-                chol_delete_append(factor_input, 0, jnp.empty(0), kappa)
+                chol_delete_append(
+                    factor_input,
+                    jnp.asarray([0]),
+                    jnp.empty((0, 1)),
+                    kappa.reshape(1, 1),
+                )
             ),
             argnums=(0, 1),
         )
     )(L, jnp.asarray(3.0))
     np.testing.assert_array_equal(grad_L, 0)
     np.testing.assert_allclose(grad_kappa, 0.5 / np.sqrt(3), rtol=RTOL)
-    deleted_grad = jax.grad(lambda x: jnp.sum(chol_delete(x, 0)))(L)
+    deleted_grad = jax.grad(lambda x: jnp.sum(chol_delete(x, jnp.asarray([0]))))(L)
     np.testing.assert_array_equal(deleted_grad, 0)
 
 
@@ -182,16 +200,16 @@ def derivative_case(name):
         def reference(factor_input, d):
             return jnp.linalg.cholesky(matrix(factor_input).at[2, 2].add(d))
     elif name == "append":
-        args = L, k, jnp.asarray(2.0)
+        args = L, k[:, None], jnp.asarray([[2.0]])
         operation = chol_append
 
         def reference(factor_input, k, c):
-            return jnp.linalg.cholesky(append_matrix(matrix(factor_input), k, c))
+            return jnp.linalg.cholesky(jnp.block([[matrix(factor_input), k], [k.T, c]]))
     elif name == "delete":
         args = (L,)
 
         def operation(factor_input):
-            return chol_delete(factor_input, jnp.asarray(2))
+            return chol_delete(factor_input, jnp.asarray([2]))
 
         def reference(factor_input):
             return jnp.linalg.cholesky(delete_matrix(matrix(factor_input), 2))
@@ -199,7 +217,12 @@ def derivative_case(name):
         args = L, k[:-1], jnp.asarray(2.0)
 
         def operation(factor_input, k, c):
-            return chol_delete_append(factor_input, jnp.asarray(2), k, c)
+            return chol_delete_append(
+                factor_input,
+                jnp.asarray([2]),
+                k[:, None],
+                c.reshape(1, 1),
+            )
 
         def reference(factor_input, k, c):
             return jnp.linalg.cholesky(
@@ -306,7 +329,7 @@ def test_dynamic_indices_in_batch():
     indices = jnp.asarray([0, 2, 4])
     k = jnp.linspace(-0.2, 0.3, 4)
     replacements = jax.jit(jax.vmap(chol_delete_append, in_axes=(None, 0, None, None)))(
-        L, indices, k, 2.0
+        L, indices[:, None], k[:, None], jnp.asarray([[2.0]])
     )
     for i, result in zip(np.asarray(indices), replacements, strict=True):
         assert_factor(result, append_matrix(delete_matrix(matrix(L), int(i)), k, 2.0))
@@ -332,32 +355,13 @@ def test_downdate_near_spd_boundary(margin):
     )
 
 
-def test_non_spd_and_invalid_data_are_visible_under_jit_and_vmap():
-    L = jnp.eye(3)
-    u = jnp.asarray([1.0, 0.0, 0.0])
-    result = jax.jit(jax.vmap(chol_rank1, in_axes=(None, None, 0)))(
-        L, u, jnp.asarray([0.2, -1.0, -1.1])
-    )
-    assert np.isfinite(result[0]).all()
-    assert np.isnan(result[1:]).all()
-    assert np.isnan(jax.jit(chol_append)(L, jnp.ones(3), 1.0)).all()
-    assert np.isnan(jax.jit(chol_diag_update)(L, jnp.asarray(1), -2.0)).all()
-    assert not np.isfinite(jax.jit(chol_delete_append)(L, 1, jnp.ones(2), 0.0)).all()
-    assert np.isnan(jax.jit(chol_rank1)(L, u.at[0].set(jnp.inf), 0.0)).all()
-    # Consuming an otherwise unchanged factor entry must not hide failure.
-    selected = jax.jit(
-        lambda factor_input: chol_diag_update(factor_input, 2, -2.0)[0, 0]
-    )(L)
-    assert np.isnan(selected)
-
-
 @pytest.mark.parametrize("index", [-1, 3])
 def test_invalid_runtime_indices(index):
     L = jnp.eye(3)
     i = jnp.asarray(index)
     assert np.isnan(jax.jit(chol_diag_update)(L, i, 0.1)).all()
-    with pytest.raises(ValueError, match="index"):
-        chol_delete(L, index)
+    with pytest.raises(ValueError, match="indices"):
+        chol_delete(L, jnp.asarray([index]))
 
 
 def test_unused_upper_triangle_is_ignored():
@@ -372,10 +376,15 @@ def test_invalid_tensor_shapes_and_dtypes_raise():
     with pytest.raises(ValueError, match="square"):
         chol_rank1(jnp.ones((2, 3)), jnp.ones(2))
     with pytest.raises(ValueError, match="shape"):
-        chol_delete_append(L, 1, jnp.ones(5), 1.0)
-    with pytest.raises(TypeError, match="integer scalar"):
-        chol_delete(L, jnp.asarray(1.0))
+        chol_delete_append(
+            L,
+            jnp.asarray([1]),
+            jnp.reshape(jnp.ones(5), (-1, 1)),
+            jnp.asarray([[1.0]]),
+        )
+    with pytest.raises(TypeError, match="integer array"):
+        chol_delete(L, jnp.asarray([1.0]))
     with pytest.raises(TypeError, match="float32 or float64"):
         chol_rank1(jnp.eye(2, dtype=jnp.complex64), jnp.ones(2))
-    with pytest.raises(ValueError, match="empty"):
-        chol_delete(jnp.empty((0, 0)), 0)
+    with pytest.raises(ValueError, match="more than n"):
+        chol_delete(jnp.empty((0, 0)), jnp.asarray([0]))

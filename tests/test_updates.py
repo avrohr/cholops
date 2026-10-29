@@ -42,7 +42,14 @@ def edit_matrix(A, index, k=None, kappa=None):
 
 def dense_edit(L, index, k=None, kappa=None):
     L = jnp.tril(L)
-    return jnp.linalg.cholesky(edit_matrix(L @ L.T, index, k, kappa))
+    return jnp.linalg.cholesky(
+        edit_matrix(
+            L @ L.T,
+            index[0],
+            None if k is None else k[:, 0],
+            None if kappa is None else kappa[0, 0],
+        )
+    )
 
 
 def evaluate(fn, args, argnums):
@@ -81,10 +88,13 @@ def test_positive_update_values_jvp_and_vjp(n, scale):
 def test_deletion_and_delete_append_values_jvp_and_vjp(n, index, replacement):
     L, _ = fixture(n)
     index = jnp.asarray(index)
-    args = (L, index)
+    args = (L, index[None])
     argnums = (0,)
     if replacement:
-        args += (jnp.linspace(0.01, 0.1, n - 1, dtype=DTYPE), jnp.asarray(2.0, DTYPE))
+        args += (
+            jnp.linspace(0.01, 0.1, n - 1, dtype=DTYPE)[:, None],
+            jnp.asarray([[2.0]], DTYPE),
+        )
         argnums = (0, 2, 3)
     fn = chol_delete_append if replacement else chol_delete
     close(evaluate(fn, args, argnums), evaluate(dense_edit, args, argnums))
@@ -97,7 +107,7 @@ def test_runtime_indices_batched_ad_and_unused_triangle():
     indices = jnp.asarray([0, 3, 6])
     k = jnp.zeros(6, dtype=DTYPE)
     scalar = jnp.asarray(2.0, DTYPE)
-    args = factors, indices, k, scalar
+    args = factors, indices[:, None], k[:, None], scalar.reshape(1, 1)
     actual = evaluate(jax.vmap(chol_delete_append, (0, 0, None, None)), args, (0, 2, 3))
     expected = evaluate(jax.vmap(dense_edit, (0, 0, None, None)), args, (0, 2, 3))
     close(actual, expected)
@@ -153,7 +163,12 @@ def test_fixed_size_sequence_and_gradients():
                 state = edit_matrix(state, index, k, kappa)
                 L = jnp.linalg.cholesky(state)
             else:
-                state = chol_delete_append(state, index, k, kappa)
+                state = chol_delete_append(
+                    state,
+                    jnp.asarray([index]),
+                    k[:, None],
+                    kappa.reshape(1, 1),
+                )
                 L = state
             score = jnp.log(jnp.diag(L)).sum()
             return (state, jnp.concatenate((survivors, new[None]))), (L, score)
@@ -176,7 +191,12 @@ def test_fixed_size_sequence_and_gradients():
 
 def test_domain_errors_are_not_repaired():
     L, _ = fixture(3)
-    out = jax.jit(chol_delete_append)(L, jnp.asarray(1), jnp.zeros(2, DTYPE), -1.0)
+    out = jax.jit(chol_delete_append)(
+        L,
+        jnp.asarray([1]),
+        jnp.reshape(jnp.zeros(2, DTYPE), (-1, 1)),
+        jnp.asarray([[-1.0]]),
+    )
     assert np.isnan(out[-1, -1])
     with pytest.raises(ValueError):
-        chol_delete(L, -1)
+        chol_delete(L, jnp.asarray([-1]))

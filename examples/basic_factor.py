@@ -31,16 +31,16 @@ def main():
 
     # Add d. Supply one covariance with each existing observation, followed by
     # d's own variance. Its measured value must also be appended to the data.
-    factor = original.append(jnp.array([0.2, 0.1, 0.05]), 1.3)
+    factor = original.append(jnp.array([[0.2], [0.1], [0.05]]), jnp.array([[1.3]]))
     observations = jnp.append(observations, 0.4)
 
     # Replace b with e at index 1. The cross-covariances follow the retained
     # order [a, c, d]. Both the factor and observations now have order [a, e, c, d].
-    factor = factor.replace(1, jnp.array([0.15, 0.1, 0.2]), 1.2)
+    factor = factor.replace(1, jnp.array([[0.15], [0.1], [0.2]]), jnp.array([[1.2]]))
     observations = observations.at[1].set(-0.3)
 
     # Remove a from both objects. The surviving order is [e, c, d].
-    factor = factor.delete(0)
+    factor = factor.delete(jnp.asarray([0]))
     observations = observations[1:]
 
     # These calculations use the stored factor without forming a matrix inverse.

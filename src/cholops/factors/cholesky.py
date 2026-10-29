@@ -10,6 +10,7 @@ from ..tensors import (
     chol_append,
     chol_delete,
     chol_delete_append,
+    chol_delete_last,
     chol_diag_update,
     chol_rank1,
     chol_rank1_positive,
@@ -18,7 +19,7 @@ from ..tensors import (
     cholesky,
 )
 from ..tensors._validation import _factor
-from ._consumers import _logdet, _quadratic, _rhs, _solve
+from ._consumers import _logdet, _matrix_rhs, _quadratic, _rhs, _solve, _whiten
 
 
 @jax.tree_util.register_dataclass
@@ -26,9 +27,10 @@ from ._consumers import _logdet, _quadratic, _rhs, _solve
 class Cholesky:
     """Canonical lower factor, stored as one dynamic PyTree leaf ``factor``.
 
-    Construct with from_matrix or from_factor. All inputs and outputs follow
-    the matrix's row and column order. Floating arrays share a real float32 or
-    float64 dtype. The represented matrix must remain positive definite.
+    Construct with from_matrix or from_factor. Inputs and solutions returned by
+    solve follow the matrix's row and column order. Whitening returns factor
+    coordinates. Floating arrays share a real float32 or float64 dtype.
+    The represented matrix must remain positive definite.
     Modifications return new objects, leaving the original unchanged.
     Supports jit, vmap and first-order differentiation.
     """
@@ -59,6 +61,18 @@ class Cholesky:
         """Solve the covariance system for a canonical (n,) or (n,r) RHS."""
         return _solve(self.factor, _rhs(self.factor, rhs))
 
+    def whiten(self, rhs: Array) -> Array:
+        """Return W:(n,r) solving L @ W = rhs with one triangular solve.
+
+        rhs:(n,r) follows the matrix order and shares the factor dtype.
+        Use (n,1) for one column. Rows of W are whitened coordinates.
+        Columns retain their input order.
+        W.T @ W equals rhs.T @ A^{-1} @ rhs for the represented matrix A.
+        Cross products require results from the same factor state.
+        Supports jit, vmap and first-order differentiation.
+        """
+        return _whiten(self.factor, _matrix_rhs(self.factor, rhs))
+
     def logdet(self) -> Array:
         """Scalar log determinant of the represented covariance."""
         return _logdet(self.factor)
@@ -67,46 +81,51 @@ class Cholesky:
         """Inverse quadratic form: scalar for (n,), per column for (n,r)."""
         return _quadratic(self.factor, _rhs(self.factor, rhs))
 
-    def append(self, k: Array, kappa: Array | float) -> "Cholesky":
-        """Append covariances k:(n,) and diagonal kappa; return size n+1.
+    def append(self, K: Array, C: Array) -> "Cholesky":
+        """Append r rows and columns with K:(n,r) and C:(r,r).
 
-        The target covariance must be positive definite.
+        The resulting matrix is [[A, K], [K.T, C]], where A is the
+        matrix represented by this factor. C must be symmetric and
+        the resulting matrix positive definite.
+        Use (n,1) and (1,1) arrays for a single row and column.
         """
-        return type(self)(chol_append(self.factor, k, kappa))
+        return type(self)(chol_append(self.factor, K, C))
 
-    def delete(self, index: Array | int) -> "Cholesky":
-        """Delete one variable, preserving survivor order; return size n-1.
+    def delete(self, indices: Array) -> "Cholesky":
+        """Delete indices:(r,), preserving survivor order and returning size n-r.
 
-        index must be in [0,n). Check traced indices before calling this method,
-        since they are not checked at runtime.
+        Indices must be distinct and in bounds. Their count is static, but
+        values may be traced. Traced values are not checked at runtime.
         """
-        return type(self)(chol_delete(self.factor, index))
+        return type(self)(chol_delete(self.factor, indices))
 
-    def replace(self, index: Array | int, k: Array, kappa: Array | float) -> "Cholesky":
-        """Replace at index, preserving every other index and the (n,n) shape.
+    def delete_last(self, r: int) -> "Cholesky":
+        """Remove the last r variables by slicing. r must be static and in [0,n]."""
+        return type(self)(chol_delete_last(self.factor, r))
 
-        k:(n-1,) follows survivor order. kappa is the new diagonal.
-        The target must be positive definite and index must be in [0,n).
-        Traced indices are not checked at runtime.
+    def replace(self, start: Array | int, K: Array, C: Array) -> "Cholesky":
+        """Replace variables start:start+r, preserving order and shape.
+
+        C:(r,r) describes the new block. K:(n-r,r) has rows for the variables
+        before and after it, in their original order. start may be traced and
+        must be in [0,n-r]. The target must be positive definite.
+        Use (n-1,1) and (1,1) arrays for one replacement.
         """
-        return type(self)(chol_replace(self.factor, index, k, kappa))
+        return type(self)(chol_replace(self.factor, start, K, C))
 
-    def delete_append(
-        self, index: Array | int, k: Array, kappa: Array | float
-    ) -> "Cholesky":
-        """Delete index and append its replacement at the end, keeping size n.
+    def delete_append(self, indices: Array, K: Array, C: Array) -> "Cholesky":
+        """Delete indices:(r,) and append s variables, returning size n-r+s.
 
-        k:(n-1,) follows survivor order. kappa is the new diagonal.
-        The returned factor is ordered as survivors followed by the replacement.
-        The target must be positive definite and index must be in [0,n).
-        Traced indices are not checked at runtime.
+        K:(n-r,s) follows survivor order. C:(s,s) must be symmetric and the
+        target positive definite. Indices must be distinct and in bounds.
+        The result is ordered as survivors followed by the appended block.
         """
-        return type(self)(chol_delete_append(self.factor, index, k, kappa))
+        return type(self)(chol_delete_append(self.factor, indices, K, C))
 
     def replace_last(self, K: Array, C: Array) -> "Cholesky":
         """Replace the last r variables with K:(n-r,r), C:(r,r), keeping size n.
 
-        Uses a Schur complement with native JAX Cholesky differentiation.
+        Uses a Schur complement with the symmetry-preserving Cholesky reverse rule.
         C must be symmetric and the target must be positive definite.
         r is static, inferred from C; r=0 and r=n are supported.
         """

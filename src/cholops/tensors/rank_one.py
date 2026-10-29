@@ -6,7 +6,7 @@ from jax import Array, lax
 from jax.scipy.linalg import solve_triangular
 
 from ._autodiff import tangent_map
-from ._validation import _factor, _finish, _index, _scalar, _valid_factor, _vector
+from ._validation import _factor, _index, _scalar, _vector
 
 
 def _rank1(L: Array, u: Array, alpha: Array, start: Array | int = 0) -> Array:
@@ -42,8 +42,7 @@ def chol_rank1(L: Array, u: Array, alpha: Array | float = 1.0) -> Array:
     L has shape (n, n), u has shape (n,), and alpha is a signed scalar.
     The target must be positive definite. Uses a signed rotation recurrence
     with O(n^2) work, without forming the matrix or taking sqrt(abs(alpha)).
-    The weight derivative is therefore defined at alpha=0. Numerical failure
-    produces NaNs.
+    The weight derivative is therefore defined at alpha=0.
 
     Supports jit, vmap, JVP and reverse-mode AD on the positive-definite domain.
     Use vmap explicitly for batches.
@@ -51,8 +50,7 @@ def chol_rank1(L: Array, u: Array, alpha: Array | float = 1.0) -> Array:
     L = _factor(L)
     u = _vector(u, L.shape[0], L, "u")
     alpha = _scalar(alpha, L, "alpha")
-    valid = _valid_factor(L) & jnp.all(jnp.isfinite(u)) & jnp.isfinite(alpha)
-    return _finish(_rank1(L, u, alpha), valid)
+    return _rank1(L, u, alpha)
 
 
 def chol_diag_update(L: Array, index: Array | int, delta: Array | float) -> Array:
@@ -64,15 +62,16 @@ def chol_diag_update(L: Array, index: Array | int, delta: Array | float) -> Arra
     packing still depend on the full n. index is a scalar in [0, n).
 
     Supports jit, vmap, JVP and reverse-mode AD, including delta=0. No
-    derivative is defined for index. Invalid indices/numerical failure give
-    NaNs for runtime arguments; invalid concrete Python indices raise.
+    derivative is defined for index. Invalid runtime indices give NaNs.
+    Invalid concrete Python indices raise.
     """
     L = _factor(L)
     index = _index(index, L.shape[0])
     delta = _scalar(delta, L, "delta")
     u = jax.nn.one_hot(index, L.shape[0], dtype=L.dtype)
-    valid = _valid_factor(L) & (index >= 0) & (index < L.shape[0]) & jnp.isfinite(delta)
-    return _finish(_rank1(L, u, delta, start=index), valid)
+    valid = (index >= 0) & (index < L.shape[0])
+    result = _rank1(L, u, delta, start=index)
+    return result * jnp.where(valid, 1, jnp.asarray(jnp.nan, dtype=result.dtype))
 
 
 @jax.custom_jvp

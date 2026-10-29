@@ -29,7 +29,7 @@ def _rank1(L, u, sign):
 
 
 def replace(L, index, k, kappa):
-    """Index-preserving replacement, with the same inputs as chol_replace."""
+    """Index-preserving replacement of one variable, using vector/scalar inputs."""
     L = jnp.tril(L)
     n = L.shape[0]
     keep = jnp.arange(n - 1) + (jnp.arange(n - 1) >= index)

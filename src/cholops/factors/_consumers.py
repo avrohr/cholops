@@ -1,4 +1,4 @@
-"""Solves, log determinants and quadratic forms shared by the factor classes."""
+"""Whitening, solves and reductions shared by the factor classes."""
 
 import jax.numpy as jnp
 from jax import Array
@@ -14,8 +14,19 @@ def _rhs(L: Array, rhs: Array) -> Array:
     return rhs
 
 
+def _matrix_rhs(L: Array, rhs: Array) -> Array:
+    rhs = _rhs(L, rhs)
+    if rhs.ndim != 2:
+        raise ValueError("rhs must have shape (n,r); use (n,1) for one column")
+    return rhs
+
+
+def _whiten(L: Array, rhs: Array) -> Array:
+    return solve_triangular(L, rhs, lower=True)
+
+
 def _solve(L: Array, rhs: Array) -> Array:
-    z = solve_triangular(L, rhs, lower=True)
+    z = _whiten(L, rhs)
     return solve_triangular(L, z, lower=True, trans="T")
 
 
@@ -24,5 +35,5 @@ def _logdet(L: Array) -> Array:
 
 
 def _quadratic(L: Array, rhs: Array) -> Array:
-    z = solve_triangular(L, rhs, lower=True)
+    z = _whiten(L, rhs)
     return jnp.sum(z * z, axis=0)

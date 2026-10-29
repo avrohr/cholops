@@ -94,7 +94,12 @@ def step_function(case, method, theta, *, trace):
                 retained_x = x[survivors]
                 k = kernel(retained_x, new_x[j : j + 1], theta, case.scenario)[:, 0]
                 kappa = jnp.exp(theta[0]) + jnp.exp(theta[2])
-                L = chol_delete_append(L, jnp.asarray(index), k, kappa)
+                L = chol_delete_append(
+                    L,
+                    jnp.asarray([index]),
+                    k[:, None],
+                    kappa.reshape(1, 1),
+                )
                 x = jnp.concatenate((retained_x, new_x[j : j + 1]))
         score = nll(L, target_y)
         return (L, target_x, target_y), (L, score) if trace else score

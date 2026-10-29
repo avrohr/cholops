@@ -50,10 +50,11 @@ derivative, rather than letting it pass through the sensitive solves and cancel
 later. This improves the calculation without changing the mathematical
 derivative or forming a matrix inverse.
 
-Both factor classes use this rule in `from_matrix`. If you instead call
-`from_factor`, the supplied factor keeps the derivative history of whichever
-function produced it. Wrapping it does not replace that function's derivative
-rule.
+Both factor classes use this rule in `from_matrix`. Block append and
+trailing-block replacement also use it when factoring the Schur complement.
+If you instead call `from_factor`, the supplied factor keeps the derivative
+history of whichever function produced it. Wrapping it does not replace that
+function's derivative rule.
 
 ## Updating and replacing entries
 
@@ -69,13 +70,21 @@ forward calculation also uses scaled norms to avoid unnecessarily squaring
 large intermediate values. These choices improve robustness but do not remove
 all sources of rounding error or overflow.
 
-Deletion uses a positive rank-one update to obtain the factor of the remaining
-matrix. Delete-and-append then extends that factor with the new variable.
-Replacing a variable at its original index needs an additional downdate of the
-trailing factor, unless the variable is already last. Avoiding this downdate is
-one reason to use [PermutedCholesky](factors.md#permutedcholesky) for repeated
-replacements. Replacing a trailing block with `replace_last` also avoids this
-downdate by keeping the leading factor and factoring only the new remainder.
+Deletion gathers the retained factor and the deleted columns once, then applies
+one positive rank-one update per deleted column. This reuses the update algorithm
+and its derivative rules. Work and saved reverse-mode storage grow linearly with
+the number of deleted variables and quadratically with the retained size.
+`delete_last` only slices the factor.
+Delete-and-append extends the retained factor with the new block.
+Canonical replacement of one variable combines a positive update and a downdate.
+For multiple variables, it applies the covariance change together using small
+linear systems and matrix products. This reduces repeated passes over the factor.
+The block calculation solves with the old factor, so a better-conditioned target
+does not remove sensitivity to the old matrix. Float64 is preferable for these
+block replacements when the old matrix is poorly conditioned.
+[PermutedCholesky](factors.md#permutedcholesky) instead uses deletion and block
+append. Replacing a trailing block with `replace_last` keeps the leading factor
+and factors only the new remainder.
 
 `chol_rank1` uses a separate algorithm because it must handle positive, negative
 and zero weights. The weight enters the calculation directly, so its derivative

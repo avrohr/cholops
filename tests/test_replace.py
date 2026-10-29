@@ -25,7 +25,7 @@ def edit(A, index, k, kappa):
 
 def dense(L, index, k, kappa):
     L = jnp.tril(L)
-    return jnp.linalg.cholesky(edit(L @ L.T, index, k, kappa))
+    return jnp.linalg.cholesky(edit(L @ L.T, index, k[:, 0], kappa[0, 0]))
 
 
 def fixture(n, index):
@@ -55,7 +55,7 @@ def fixture(n, index):
 )
 def test_replacement_and_all_continuous_vjps(n, index):
     L, k, kappa = fixture(n, index)
-    args = L, jnp.asarray(index), k, kappa
+    args = L, jnp.asarray(index), k[:, None], kappa.reshape(1, 1)
     W = jnp.sin(jnp.arange(n * n, dtype=L.dtype) + 0.2).reshape((n, n))
     for compiled in (False, True):
 
@@ -80,7 +80,9 @@ def test_replacement_and_all_continuous_vjps(n, index):
     close(out @ out.T, expected)
     # Index preservation includes an exactly unchanged leading factor.
     np.testing.assert_array_equal(out[:index, :index], L[:index, :index])
-    shifted = jax.jit(chol_delete_append)(*args)
+    shifted = jax.jit(chol_delete_append)(
+        L, jnp.asarray([index]), k[:, None], jnp.asarray(kappa).reshape(1, 1)
+    )
     order = np.r_[keep, index]
     close(shifted @ shifted.T, expected[np.ix_(order, order)])
 
@@ -90,8 +92,8 @@ def test_dynamic_batch_shared_inputs_and_ignored_upper_triangle():
     L = L.at[jnp.triu_indices(7, 1)].set(jnp.nan)
     factors = jnp.stack((L, 1.2 * L, 0.9 * L))
     indices = jnp.array([0, 3, 6])
-    k = jnp.linspace(0.01, 0.1, 6, dtype=L.dtype)
-    c = jnp.asarray(2.0, dtype=L.dtype)
+    k = jnp.linspace(0.01, 0.1, 6, dtype=L.dtype)[:, None]
+    c = jnp.asarray([[2.0]], dtype=L.dtype)
 
     def evaluate(fn):
         fn = jax.vmap(fn, (0, 0, None, None))
@@ -146,7 +148,7 @@ def test_sequence_all_states_and_gradients():
             if method == "recompute":
                 L = jnp.linalg.cholesky(jnp.eye(n) + scale * (X @ X.T))
             else:
-                L = chol_replace(L, index, k, c)
+                L = chol_replace(L, jnp.asarray(index), k[:, None], c.reshape(1, 1))
             y = X[:, 0]
             z = jax.scipy.linalg.solve_triangular(L, y, lower=True)
             score = (jnp.log(jnp.diag(L)).sum() + 0.5 * jnp.vdot(z, z)) / n
@@ -172,12 +174,27 @@ def test_sequence_all_states_and_gradients():
 
 def test_invalid_replacement_is_visible_and_bad_inputs_raise():
     L = jnp.eye(4, dtype=DTYPE)
-    out = jax.jit(chol_replace)(L, jnp.asarray(1), jnp.ones(3, dtype=DTYPE), 0.1)
+    out = jax.jit(chol_replace)(
+        L,
+        jnp.asarray(1),
+        jnp.ones((3, 1), dtype=DTYPE),
+        jnp.array([[0.1]], dtype=DTYPE),
+    )
     assert not np.isfinite(out).all()
     with pytest.raises(ValueError):
-        chol_replace(L, -1, jnp.zeros(3, dtype=DTYPE), 1.0)
+        chol_replace(
+            L,
+            -1,
+            jnp.zeros((3, 1), dtype=DTYPE),
+            jnp.ones((1, 1), dtype=DTYPE),
+        )
     with pytest.raises(ValueError):
-        chol_replace(L, 1, jnp.zeros(4, dtype=DTYPE), 1.0)
+        chol_replace(
+            L,
+            1,
+            jnp.zeros((4, 1), dtype=DTYPE),
+            jnp.ones((1, 1), dtype=DTYPE),
+        )
 
 
 @pytest.mark.parametrize("index", [0, 4, 6, 7])
@@ -225,7 +242,9 @@ def test_conditioned_replacement_vjp_against_decimal(index):
         expected = (np.tril(2 * qold @ L), 2 * Q[keep, index], Q[index, index])
     actual = jax.jit(
         jax.grad(
-            lambda L, k, c: jnp.sum(chol_replace(L, index, k, c) * G),
+            lambda L, k, c: jnp.sum(
+                chol_replace(L, jnp.asarray(index), k[:, None], c.reshape(1, 1)) * G
+            ),
             argnums=(0, 1, 2),
         )
     )(jnp.asarray(L), jnp.asarray(k), jnp.asarray(c))

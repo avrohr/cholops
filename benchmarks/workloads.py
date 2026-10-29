@@ -144,14 +144,14 @@ def _add_operation_phases(
 
 
 def _operation(name, L, params, index):
-    if name in ("delete", "replace", "delete_append", "diag_update"):
-        functions = {
-            "delete": chol_delete,
-            "replace": chol_replace,
-            "delete_append": chol_delete_append,
-            "diag_update": chol_diag_update,
-        }
-        return functions[name](L, index, *params)
+    if name == "delete":
+        return chol_delete(L, index[None])
+    if name in ("replace", "delete_append"):
+        operation = chol_replace if name == "replace" else chol_delete_append
+        selected = index if name == "replace" else index[None]
+        return operation(L, selected, params[0][:, None], params[1].reshape(1, 1))
+    if name == "diag_update":
+        return chol_diag_update(L, index, *params)
     functions = {
         "append": chol_append,
         "replace_last": chol_replace_last,
@@ -168,8 +168,8 @@ def _reference(name, L, params, index):
     A = L @ L.T
     keep = keep_indices(L.shape[0], index)
     if name == "append":
-        k, c = params
-        A = jnp.block([[A, k[:, None]], [k[None, :], c.reshape(1, 1)]])
+        K, C = params
+        A = jnp.block([[A, K], [K.T, (C + C.T) / 2]])
     elif name == "delete":
         A = A[keep[:, None], keep[None, :]]
     elif name == "delete_append":
@@ -217,7 +217,7 @@ def operations(
     r = min(4, n)
     tail = incoming[:r]
     params = {
-        "append": (k, c),
+        "append": (k[:, None], c.reshape(1, 1)),
         "delete": (),
         "replace": (k[keep_indices(n, index)], c),
         "delete_append": (k[keep_indices(n, index)], c),
@@ -266,7 +266,7 @@ def _sequence(implementation):
             X = X.at[i].set(new)
             rhs = X[:, 0]
             if implementation in ("canonical", "managed"):
-                state = state.replace(i, k, c)
+                state = state.replace(i, k[:, None], c.reshape(1, 1))
                 value = (state.logdet() + state.quadratic(rhs)) / (2 * n)
             else:
                 # Retain the covariance, avoiding reconstruction from L.

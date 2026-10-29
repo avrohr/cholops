@@ -23,7 +23,12 @@ def run_sequence(initial, indices, replacements, scale):
         survivors = features[keep]
         k = scale * (survivors @ replacement)
         kappa = 1 + scale * jnp.vdot(replacement, replacement)
-        updated = chol_delete_append(L, index, k, kappa)
+        updated = chol_delete_append(
+            L,
+            jnp.asarray([index]),
+            k[:, None],
+            kappa.reshape(1, 1),
+        )
         features = jnp.concatenate([survivors, replacement[None, :]], axis=0)
         return (updated, features), updated
 

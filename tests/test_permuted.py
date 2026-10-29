@@ -16,20 +16,26 @@ def close(actual, expected):
         np.testing.assert_allclose(a, b, rtol=TOL, atol=TOL)
 
 
-@pytest.mark.parametrize("n", [1, 8])
-def test_logical_replacements_and_consumers(n):
+@pytest.mark.parametrize("n,r", [(1, 1), (8, 0), (8, 1), (8, 3), (8, 8)])
+def test_logical_replacements_and_consumers(n, r):
     rng = np.random.default_rng(24)
     X = jnp.asarray(rng.normal(size=(n, 3)) / 2, DTYPE)
     A = jnp.eye(n, dtype=DTYPE) + X @ X.T
     state = PermutedCholesky.from_matrix(A)
     rhs = jnp.asarray(rng.normal(size=(n, 3)), DTYPE)
-    for i in [0, n // 2, max(n - 2, 0), n - 1, 0, 0, n // 2]:
-        new = jnp.asarray(rng.normal(size=3) / 2, DTYPE)
-        keep = jnp.arange(n - 1) + (jnp.arange(n - 1) >= i)
-        state = jax.jit(lambda s, i, k, c: s.replace(i, k, c))(
-            state, jnp.asarray(i), X[keep] @ new, 1 + new @ new
+    replace = jax.jit(lambda s, start, K, C: s.replace(start, K, C))
+    for _ in range(7):
+        start = int(rng.integers(n - r + 1))
+        indices = np.arange(start, start + r)
+        keep = np.delete(np.arange(n), indices)
+        new = jnp.asarray(rng.normal(size=(r, 3)) / 2, DTYPE)
+        state = replace(
+            state,
+            jnp.asarray(start),
+            X[keep] @ new.T,
+            jnp.eye(r, dtype=DTYPE) + new @ new.T,
         )
-        X = X.at[i].set(new)
+        X = X.at[indices].set(new)
         A = jnp.eye(n, dtype=DTYPE) + X @ X.T
         np.testing.assert_array_equal(state.order[state.inverse_order], np.arange(n))
         physical_A = state.physical_factor @ state.physical_factor.T
@@ -41,13 +47,16 @@ def test_logical_replacements_and_consumers(n):
         close(state.logdet(), jnp.linalg.slogdet(A)[1])
 
 
-@pytest.mark.parametrize("container", [Cholesky, PermutedCholesky])
-def test_scan_gradients_and_batching(container):
+@pytest.mark.parametrize(
+    "container,r",
+    [(Cholesky, 1), (Cholesky, 3), (PermutedCholesky, 1), (PermutedCholesky, 3)],
+)
+def test_scan_gradients_and_batching(container, r):
     rng = np.random.default_rng(9)
     n, steps = 7, 12
     X = jnp.asarray(rng.normal(size=(n, 3)) / 3, DTYPE).at[0].set(0)
-    incoming = jnp.asarray(rng.normal(size=(steps, 3)) / 3, DTYPE)
-    indices = jnp.asarray([0, 3, 5, 6, 0, 0] * 2)
+    incoming = jnp.asarray(rng.normal(size=(steps, r, 3)) / 3, DTYPE)
+    starts = jnp.asarray([0, 3, 5, 6, 0, 0] * 2) % (n - r + 1)
     rhs = jnp.asarray(rng.normal(size=(n, 2)), DTYPE)
 
     def sequence(X, incoming, scale, rhs, dense=False):
@@ -56,21 +65,23 @@ def test_scan_gradients_and_batching(container):
 
         def step(carry, request):
             X, state = carry
-            i, new = request
-            keep = jnp.arange(n - 1) + (jnp.arange(n - 1) >= i)
-            k, c = scale * (X[keep] @ new), 1 + scale * (new @ new)
-            X = X.at[i].set(new)
+            start, new = request
+            replaced = start + jnp.arange(r)
+            keep = jnp.setdiff1d(jnp.arange(n), replaced, size=n - r)
+            K = scale * (X[keep] @ new.T)
+            C = jnp.eye(r, dtype=DTYPE) + scale * (new @ new.T)
+            X = X.at[replaced].set(new)
             if dense:
                 state = jnp.eye(n, dtype=DTYPE) + scale * X @ X.T
                 loss = jnp.linalg.slogdet(state)[1] + jnp.sum(
                     rhs * jnp.linalg.solve(state, rhs)
                 )
             else:
-                state = state.replace(i, k, c)
+                state = state.replace(start, K, C)
                 loss = state.logdet() + jnp.sum(state.quadratic(rhs))
             return (X, state), loss
 
-        return jnp.mean(jax.lax.scan(step, (X, state), (indices, incoming))[1])
+        return jnp.mean(jax.lax.scan(step, (X, state), (starts, incoming))[1])
 
     args = X, incoming, jnp.asarray(0.7, DTYPE), rhs
     actual = jax.jit(jax.value_and_grad(sequence, argnums=(0, 1, 2, 3)))
@@ -129,7 +140,11 @@ def logical_matrix(state):
 
 
 def apply_method(state, method, index, args):
-    if method in ("delete", "delete_append", "diag_update"):
+    if method == "delete":
+        return state.delete(index[None])
+    if method == "delete_append":
+        return state.delete_append(index[None], args[0][:, None], args[1].reshape(1, 1))
+    if method == "diag_update":
         return getattr(state, method)(index, *args)
     return getattr(state, method)(*args)
 
@@ -141,7 +156,10 @@ def dense_modification(A, method, index, args):
         A = A[keep[:, None], keep[None, :]]
         if method == "delete":
             return A
-    if method in ("append", "delete_append"):
+    if method == "append":
+        K, C = args
+        return jnp.block([[A, K], [K.T, (C + C.T) / 2]])
+    if method == "delete_append":
         k, c = args
         return jnp.block([[A, k[:, None]], [k[None, :], c.reshape(1, 1)]])
     if method == "diag_update":
@@ -156,8 +174,13 @@ def modification_fixture(method, weight=0.2):
     A = jnp.eye(5, dtype=DTYPE) + X @ X.T
     vector = jnp.linspace(-0.15, 0.2, 5, dtype=DTYPE)
     scalar = jnp.asarray(weight, DTYPE)
-    if method in ("append", "delete_append"):
-        args = (vector if method == "append" else vector[:-1], jnp.asarray(1.5, DTYPE))
+    if method == "append":
+        args = (
+            jnp.stack((vector, -vector / 2), axis=1),
+            jnp.array([[1.5, 0.1], [0.1, 1.2]], DTYPE),
+        )
+    elif method == "delete_append":
+        args = (vector[:-1], jnp.asarray(1.5, DTYPE))
     elif method == "delete":
         args = ()
     elif method == "diag_update":
@@ -173,6 +196,57 @@ def check_permutations(state):
     n = state.physical_factor.shape[0]
     np.testing.assert_array_equal(state.order[state.inverse_order], np.arange(n))
     np.testing.assert_array_equal(state.inverse_order[state.order], np.arange(n))
+
+
+def test_block_replacement_derivatives_with_batched_starts_and_storage_orders():
+    A, (K, C) = modification_fixture("append")
+    K = K[:3]
+    rhs = jnp.linspace(-0.4, 0.7, 10, dtype=DTYPE).reshape(5, 2)
+    starts = jnp.array([0, 1, 3])
+    orders = jnp.array([[2, 3, 4, 1, 0], [4, 2, 0, 3, 1], [1, 0, 3, 4, 2]])
+
+    def actual(A, K, C, rhs, start, order):
+        out = reordered_state(A, order).replace(start, K, C)
+        return (
+            out.logdet()
+            + jnp.sum(out.quadratic(rhs))
+            + jnp.sum(jnp.sin(rhs) * out.solve(rhs))
+        )
+
+    def reference(A, K, C, rhs, start, order):
+        indices = start + jnp.arange(C.shape[0])
+        keep = jnp.setdiff1d(jnp.arange(5), indices, size=3)
+        B = (A + A.T) / 2
+        B = B.at[keep[:, None], indices].set(K)
+        B = B.at[indices[:, None], keep].set(K.T)
+        B = B.at[indices[:, None], indices].set((C + C.T) / 2)
+        solved = jnp.linalg.solve(B, rhs)
+        return (
+            jnp.linalg.slogdet(B)[1]
+            + jnp.sum(rhs * solved)
+            + jnp.sum(jnp.sin(rhs) * solved)
+        )
+
+    def evaluate(fn):
+        mapped = jax.vmap(fn, (None, None, None, None, 0, 0))
+
+        def loss(*args):
+            return jnp.sum(mapped(*args, starts, orders))
+
+        args = A, K, C, rhs
+        directions = jax.tree.map(lambda x: jnp.cos(x) / 20, args)
+        return (
+            jax.jit(jax.value_and_grad(loss, (0, 1, 2, 3)))(*args),
+            jax.jit(lambda *a: jax.jvp(loss, a, directions))(*args),
+        )
+
+    close(evaluate(actual), evaluate(reference))
+
+
+def test_replacement_block_must_fit():
+    state = PermutedCholesky.from_matrix(jnp.eye(5, dtype=DTYPE))
+    with pytest.raises(ValueError):
+        state.replace(4, jnp.zeros((3, 2), DTYPE), jnp.eye(2, dtype=DTYPE))
 
 
 @pytest.mark.parametrize(
@@ -261,7 +335,9 @@ def test_size_changes_and_repeated_mixed_updates():
     state = reordered_state(A)
     # Exercise the maps repeatedly, including deletion of the physical last slot.
     for index in (0, 3, 1, 0, 0):
-        state = jax.jit(lambda s, i: s.delete(i))(state, jnp.asarray(index))
+        state = jax.jit(lambda s, i: s.delete(jnp.asarray([i])))(
+            state, jnp.asarray(index)
+        )
         A = jnp.asarray(
             np.delete(np.delete(np.asarray(A), index, axis=0), index, axis=1)
         )
@@ -271,25 +347,39 @@ def test_size_changes_and_repeated_mixed_updates():
     empty_vector = jnp.empty((0,), DTYPE)
     state = state.rank1(empty_vector, -0.2).rank1_positive(empty_vector)
     singleton = jax.jit(
-        lambda s: s.append(empty_vector, 2.0).delete_append(0, empty_vector, 3.0)
+        lambda s: s.append(
+            empty_vector[:, None], jnp.array([[2.0]], DTYPE)
+        ).delete_append(
+            jnp.asarray([0]),
+            jnp.reshape(empty_vector, (-1, 1)),
+            jnp.asarray([[3.0]]),
+        )
     )(state)
     check_permutations(singleton)
     close(logical_matrix(singleton), jnp.asarray([[3.0]], DTYPE))
     for diagonal in (1.5, 2.0, 2.5):
         k = jnp.full((A.shape[0],), 0.1, DTYPE)
-        state = jax.jit(lambda s, k, c: s.append(k, c))(state, k, diagonal)
+        state = jax.jit(lambda s, k, c: s.append(k, c))(
+            state, k[:, None], jnp.array([[diagonal]], DTYPE)
+        )
         A = jnp.block([[A, k[:, None]], [k[None, :], jnp.asarray([[diagonal]], DTYPE)]])
         check_permutations(state)
         close(logical_matrix(state), A)
     # delete_append changes logical order; replace preserves the resulting slots.
-    state = state.delete_append(1, jnp.array([0.1, 0.2], DTYPE), 1.3)
+    state = state.delete_append(
+        jnp.asarray([1]),
+        jnp.reshape(jnp.array([0.1, 0.2], DTYPE), (-1, 1)),
+        jnp.asarray([[1.3]]),
+    )
     A = dense_modification(
         A,
         "delete_append",
         jnp.asarray(1),
         (jnp.array([0.1, 0.2], DTYPE), jnp.asarray(1.3, DTYPE)),
     )
-    state = state.replace(0, jnp.array([0.2, 0.1], DTYPE), 1.6)
+    state = state.replace(
+        0, jnp.array([[0.2], [0.1]], DTYPE), jnp.array([[1.6]], DTYPE)
+    )
     A = A.at[0, :].set(jnp.array([1.6, 0.2, 0.1], DTYPE))
     A = A.at[:, 0].set(jnp.array([1.6, 0.2, 0.1], DTYPE))
     check_permutations(state)
@@ -321,7 +411,11 @@ def test_mixed_modifications_in_scan_and_gradients():
                 )
             else:
                 state = state.rank1(u, weight).diag_update(index, 0.1)
-                state = state.delete_append(index, u[:-1], diagonal)
+                state = state.delete_append(
+                    jnp.asarray([index]),
+                    jnp.reshape(u[:-1], (-1, 1)),
+                    diagonal.reshape(1, 1),
+                )
                 score = state.logdet() + state.quadratic(rhs)
             return state, score
 

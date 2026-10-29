@@ -15,9 +15,9 @@ from ..tensors import (
     chol_rank1_positive,
     cholesky,
 )
-from ..tensors._indexing import _keep
-from ..tensors._validation import _factor, _index, _scalar, _vector
-from ._consumers import _logdet, _quadratic, _rhs, _solve
+from ..tensors._indexing import _indices, _keep_many
+from ..tensors._validation import _blocks, _factor, _index, _replacement, _vector
+from ._consumers import _logdet, _matrix_rhs, _quadratic, _rhs, _solve, _whiten
 
 
 @jax.tree_util.register_dataclass
@@ -26,8 +26,9 @@ class PermutedCholesky:
     """Physical lower factor and inverse permutations, all dynamic PyTree leaves.
 
     order[physical] is logical; inverse_order[logical] is physical. Construct via
-    from_matrix or from_factor. All method inputs and outputs use logical order.
-    The stored factor is lower triangular in physical order. Floating arrays
+    from_matrix or from_factor. Inputs and solutions returned by solve use
+    logical order. Whitening returns factor coordinates. The stored factor
+    is lower triangular in physical order. Floating arrays
     share a real float32 or float64 dtype, and the represented matrix must remain
     positive definite. Modifications return new objects.
     Supports jit, vmap and first-order differentiation of continuous inputs.
@@ -60,85 +61,71 @@ class PermutedCholesky:
         order = jnp.arange(factor.shape[0])
         return cls(factor, order, order)
 
-    def append(self, k: Array, kappa: Array | float) -> "PermutedCholesky":
-        """Append a variable last in logical order, returning size n+1.
+    def append(self, K: Array, C: Array) -> "PermutedCholesky":
+        """Append r variables last in logical order, returning size n+r.
 
-        k:(n,) follows the existing logical order. kappa is the new diagonal.
+        K:(n,r) follows the existing logical order along its rows.
+        C:(r,r) must be symmetric and the target covariance positive definite.
+        Use (n,1) and (1,1) arrays for a single variable.
         """
         L = self.physical_factor
         n = L.shape[0]
-        k = _vector(k, n, L, "k")
-        result = chol_append(L, k[self.order], kappa)
-        last = jnp.asarray([n], dtype=self.order.dtype)
+        K, C = _blocks(K, C, L)
+        result = chol_append(L, K[self.order], C)
+        last = jnp.arange(n, n + C.shape[0], dtype=self.order.dtype)
         return type(self)(
             result,
             jnp.concatenate((self.order, last)),
             jnp.concatenate((self.inverse_order, last)),
         )
 
-    def delete(self, index: Array | int) -> "PermutedCholesky":
-        """Delete a logical variable, preserving survivor order and returning n-1.
+    def delete(self, indices: Array) -> "PermutedCholesky":
+        """Delete logical indices:(r,), preserving survivor order.
 
-        Remaining logical indices are renumbered from zero.
+        Indices must be distinct and in bounds. Remaining logical indices
+        are renumbered from zero. The result has size n-r.
         """
-        L = self.physical_factor
-        n = L.shape[0]
-        index = _index(index, n)
-        physical = self.inverse_order[index]
-        result = chol_delete(L, physical)
-        survivors = self.order[_keep(n, physical)]
-        order = survivors - (survivors > index)
-        inverse = self.inverse_order[_keep(n, index)]
-        inverse = inverse - (inverse > physical)
-        return type(self)(result, order, inverse)
+        n = self.physical_factor.shape[0]
+        indices = _indices(indices, n)
+        physical = jnp.sort(self.inverse_order[indices])
+        result = chol_delete(self.physical_factor, physical)
+        survivors = self.order[_keep_many(n, physical)]
+        order = survivors - jnp.searchsorted(indices, survivors)
+        return type(self)(result, order, jnp.argsort(order))
 
-    def replace(
-        self, index: Array | int, k: Array, kappa: Array | float
-    ) -> "PermutedCholesky":
-        """Return a new factor after replacing logical slot index.
+    def replace(self, start: Array | int, K: Array, C: Array) -> "PermutedCholesky":
+        """Replace logical variables start:start+r using deletion and block append.
 
-        k has shape (n-1,) in logical order with index omitted; scalar kappa
-        is the new covariance diagonal. Typed arrays share the factor dtype.
-        The target must be positive definite and index must be in [0,n).
-        Traced indices are not checked at runtime.
+        C:(r,r) describes the new block. K:(n-r,r) has rows for the variables
+        before and after it, in logical order. start may be traced and must
+        be in [0,n-r]. C must be symmetric and the target positive definite.
+        Floating inputs share the factor dtype. Use (n-1,1) and (1,1) arrays
+        for a single replacement.
         Logical order and shape are preserved.
         """
         L = self.physical_factor
         n = L.shape[0]
-        index = _index(index, n)
-        k = _vector(k, n - 1, L, "k")
-        kappa = _scalar(kappa, L, "kappa")
-        physical = self.inverse_order[index]
-        keep = jnp.arange(n - 1) + (jnp.arange(n - 1) >= physical)
-        survivors = self.order[keep]
-        compact = survivors - (survivors > index)
-        result = chol_delete_append(L, physical, k[compact], kappa)
-        order = jnp.concatenate((survivors, index[None]))
-        inverse = self.inverse_order - (self.inverse_order > physical)
-        inverse = inverse.at[index].set(n - 1)
+        start, K, C = _replacement(start, K, C, L)
+        r = C.shape[0]
+        indices = start + jnp.arange(r)
+        physical = jnp.sort(self.inverse_order[indices])
+        survivors = self.order[_keep_many(n, physical)]
+        # Locate the physical survivors in K's compact logical row order.
+        compact = survivors - r * (survivors >= start)
+        result = chol_delete_append(L, physical, K[compact], C)
+        order = jnp.concatenate((survivors, indices))
+        inverse = self.inverse_order - jnp.searchsorted(physical, self.inverse_order)
+        inverse = inverse.at[indices].set(jnp.arange(n - r, n, dtype=inverse.dtype))
         return type(self)(result, order, inverse)
 
-    def delete_append(
-        self, index: Array | int, k: Array, kappa: Array | float
-    ) -> "PermutedCholesky":
-        """Delete a logical variable and append its replacement last.
+    def delete_append(self, indices: Array, K: Array, C: Array) -> "PermutedCholesky":
+        """Delete logical indices:(r,) and append a block of s variables.
 
-        k:(n-1,) follows logical survivor order. kappa is the new diagonal.
-        Unlike replace, this changes logical order to survivors then replacement.
+        K:(n-r,s) follows logical survivor order. C:(s,s) must be symmetric
+        and the target positive definite. Indices must be distinct and in bounds.
+        The result has size n-r+s, in survivor order followed by the new block.
         """
-        L = self.physical_factor
-        n = L.shape[0]
-        index = _index(index, n)
-        k = _vector(k, n - 1, L, "k")
-        physical = self.inverse_order[index]
-        survivors = self.order[_keep(n, physical)]
-        compact = survivors - (survivors > index)
-        result = chol_delete_append(L, physical, k[compact], kappa)
-        last = jnp.asarray([n - 1], dtype=self.order.dtype)
-        order = jnp.concatenate((compact, last))
-        inverse = self.inverse_order[_keep(n, index)]
-        inverse = jnp.concatenate((inverse - (inverse > physical), last))
-        return type(self)(result, order, inverse)
+        return self.delete(indices).append(K, C)
 
     def diag_update(
         self, index: Array | int, delta: Array | float
@@ -171,6 +158,20 @@ class PermutedCholesky:
         """Solve the covariance system for canonical vector or matrix RHS."""
         rhs = _rhs(self.physical_factor, rhs)
         return _solve(self.physical_factor, rhs[self.order])[self.inverse_order]
+
+    def whiten(self, rhs: Array) -> Array:
+        """Return W:(n,r) solving physical_factor @ W = rhs[order].
+
+        rhs:(n,r) uses logical order and shares the factor dtype. Use (n,1)
+        for one column. One triangular solve returns whitened coordinates,
+        without an output permutation. Columns retain their input order.
+        W.T @ W equals
+        rhs.T @ A^{-1} @ rhs for the represented matrix A in logical order.
+        Cross products require results from the same factor state.
+        Supports jit, vmap and first-order differentiation.
+        """
+        rhs = _matrix_rhs(self.physical_factor, rhs)
+        return _whiten(self.physical_factor, rhs[self.order])
 
     def logdet(self) -> Array:
         """Log determinant of the represented covariance."""
