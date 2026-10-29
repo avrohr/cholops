@@ -146,15 +146,24 @@ def test_activation_batched_runtime_indices_and_activity():
     C = jnp.eye(2, dtype=DTYPE)
     rhs = jnp.linspace(-0.3, 0.8, 6, dtype=DTYPE)
 
-    def candidate(X):
-        def update(active, indices):
-            factor = managed(covariance(X, active), active, True)
+    @jax.jit
+    def prepare(X, masks):
+        return jax.vmap(lambda active: managed(covariance(X, active), active, True))(
+            masks
+        )
+
+    @jax.jit
+    def update(factors, indices):
+        def one(factor, indices):
             result, solution = factor.activate_solve(
                 indices, K, C, solution=factor.solve(rhs), rhs=rhs
             )
             return result.logdet() + solution @ rhs
 
-        return jax.vmap(update)(masks, indices).sum()
+        return jax.vmap(one)(factors, indices).sum()
+
+    def candidate(X):
+        return update(prepare(X, masks), indices)
 
     def reference(X):
         def update(active, indices):

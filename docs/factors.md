@@ -255,10 +255,10 @@ included in the [managed-factor benchmarks](../benchmarks/README.md#full-benchma
 
 ## PaddedCholesky
 
-`PaddedCholesky` reserves a fixed capacity for streaming data. It wraps a
-`PermutedCholesky` and a boolean `.active` mask in logical order. Inactive slots
-are independent unit entries. Logical slot identities stay fixed while the
-class manages physical ordering internally.
+`PaddedCholesky` reserves a fixed capacity for streaming data. It exposes a
+`PermutedCholesky` view through `.factor` and a boolean `.active` mask in logical
+order. Inactive slots are independent unit entries. Logical slot identities stay
+fixed while the class manages physical ordering internally.
 
 ```python
 from cholops import PaddedCholesky
