@@ -33,6 +33,9 @@ summary for failures and skips.
   solves, log determinants, quadratic forms and logical ordering after updates.
 - **JAX transformations:** JIT, batching, runtime indices, first-order JVPs and
   VJPs, and combinations such as differentiation through replacement scans.
+- **Fixed capacity:** activation, replacement and deactivation against dense
+  systems, masked inactive inputs, coefficient reuse, and compilation reuse as
+  activity and physical ordering change.
 - **Derivative accuracy:** comparison with dense derivatives, JVP/VJP duality,
   and independent Decimal calculations in [tests/reference](tests/reference).
 - **Sequences and larger matrices:** accumulated factor and gradient errors over

@@ -66,14 +66,22 @@ def log_likelihood(A, b):
 logp, (grad_A, grad_b) = jax.value_and_grad(log_likelihood, argnums=(0, 1))(A, b)
 ```
 
-See the [factor guide](https://github.com/avrohr/cholops/blob/main/docs/factors.md) for more information. The executable
-examples explain each step and check their results against dense calculations:
+See the [factor guide](https://github.com/avrohr/cholops/blob/main/docs/factors.md) for more information.
+
+Here are a few examples of how to use cholops:
 
 - [Basic factor operations](https://github.com/avrohr/cholops/blob/main/examples/basic_factor.py): add, replace and remove
   observations, then solve a system and calculate a Gaussian log likelihood.
-- [Streaming Gaussian process](https://github.com/avrohr/cholops/blob/main/examples/streaming_gp.py): maintain a fixed-size
-  observation window with `PermutedCholesky` and differentiate through the
-  replacement sequence with respect to a kernel parameter.
+- [Gaussian-process regression](https://github.com/avrohr/cholops/blob/main/examples/plain_gp.py):
+  compute predictions and a log marginal likelihood.
+- [Adding observations](https://github.com/avrohr/cholops/blob/main/examples/growing_gp.py):
+  update a GP as new observations arrive.
+- [Streaming GP with a fixed-size factor](https://github.com/avrohr/cholops/blob/main/examples/fixed_size_gp.py):
+  use `PaddedCholesky` to reserve space for incoming observations and avoid
+  recompilation during streaming.
+- [GP with a sliding observation window](https://github.com/avrohr/cholops/blob/main/examples/streaming_gp.py):
+  replace old observations with new ones using `PermutedCholesky`, and
+  differentiate through the updates with respect to a kernel parameter.
 - [Online least squares](https://github.com/avrohr/cholops/blob/main/examples/online_least_squares.py): update a regression
   fit with `rank1_positive` as measurements arrive.
 - [Direct tensor operations](https://github.com/avrohr/cholops/blob/main/examples/tensor_operations.py): compare replacement

@@ -201,6 +201,46 @@ def test_factor_is_immutable():
         state.factor = jnp.eye(5, dtype=DTYPE)
 
 
+@pytest.mark.parametrize("container", [Cholesky, PermutedCholesky])
+def test_lower_constructor_with_batched_states_and_factor_gradients(container):
+    L = jnp.linalg.cholesky(fixture())
+    order = jnp.array([2, 4, 0, 3, 1])
+
+    def construct(L):
+        if container is Cholesky:
+            return container(factor=L)
+        return container(
+            physical_factor=L, order=order, inverse_order=jnp.argsort(order)
+        )
+
+    def lower(state):
+        return state.factor if container is Cholesky else state.physical_factor
+
+    factors = jnp.stack((L, 1.1 * L))
+    states = jax.jit(jax.vmap(construct))(factors)
+    close(lower(states), factors)
+    rhs = jnp.linspace(-0.2, 0.7, 5, dtype=DTYPE)
+
+    def expected(L):
+        A = L @ L.T
+        if container is PermutedCholesky:
+            inverse = jnp.argsort(order)
+            A = A[inverse][:, inverse]
+        return jnp.linalg.solve(A, rhs)
+
+    close(
+        jax.jit(jax.vmap(lambda state: state.solve(rhs)))(states),
+        jax.vmap(expected)(factors),
+    )
+    G = jnp.sin(jnp.arange(25, dtype=DTYPE).reshape(5, 5))
+    gradient = jax.jit(
+        jax.grad(lambda state: jnp.sum(lower(state) * G), allow_int=True)
+    )(construct(L))
+    close(lower(gradient), G)
+    _, tangent = jax.jvp(construct, (L,), (G,))
+    close(lower(tangent), G)
+
+
 def test_factories_and_solve_reject_incompatible_inputs():
     state = Cholesky.from_matrix(fixture())
     with pytest.raises(ValueError):

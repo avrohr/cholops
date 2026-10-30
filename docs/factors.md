@@ -8,9 +8,13 @@ from cholops.factors import Cholesky
 
 ## Cholesky
 
-`Cholesky` stores a matrix's lower-triangular Cholesky factor and provides methods
+`Cholesky` represents a matrix's Cholesky factor and provides methods
 for modifying it and solving systems with it. The factor follows the same row
-and column order as the matrix and is available as `.factor`.
+and column order as the matrix and is available as the lower-triangular `.factor`.
+
+The factor objects store the transpose internally to reduce CPU layout
+conversions between operations. Constructors and factor properties use lower
+factors, as do the tensor operations.
 
 ### Construct and use a factor
 
@@ -89,6 +93,7 @@ Each method returns a new `Cholesky` object and leaves the original unchanged.
 | Method | Effect and inputs |
 | --- | --- |
 | `append(K, C)` | Add `r` rows and columns, with `K:(n,r)` and symmetric `C:(r,r)` |
+| `append_solve(K, C, solution=..., rhs=...)` | Append a block and reuse the old solution to solve the enlarged system |
 | `delete(indices)` | Remove `indices:(r,)`, preserving the order of the remaining entries |
 | `delete_last(r)` | Remove the final `r` rows and columns by slicing; `r` is static |
 | `replace(start, K, C)` | Replace `start:start+r` at their original positions, with `K:(n-r,r)` and symmetric `C:(r,r)` |
@@ -100,6 +105,12 @@ Each method returns a new `Cholesky` object and leaves the original unchanged.
 
 `append` always takes block-shaped arrays, including `(n,1)` and `(1,1)`
 for one variable. The rows of `K` follow the existing variable order.
+
+`append_solve` returns `(updated_factor, updated_solution)`. Supply the old
+solution `(n,)` and the complete new RHS `(n+r,)`. The first `n` RHS entries
+must be unchanged. It reuses the block factorization and needs one large
+triangular correction solve instead of solving the enlarged system from scratch.
+See the [growing GP example](../examples/growing_gp.py).
 
 `delete` and `delete_append` take an integer array of distinct indices, including
 `jnp.array([i])` for one variable. Indices refer to the input before deletion.
@@ -245,3 +256,72 @@ The factor and index maps are dynamic PyTree leaves, so a change in the
 permutation alone does not trigger recompilation. The maps are integer indices
 and are not differentiable. Reordering a vector takes linear work, which is
 included in the [managed-factor benchmarks](../benchmarks/README.md#full-benchmarks).
+
+## PaddedCholesky
+
+`PaddedCholesky` reserves a fixed capacity for streaming data. Its `.factor` is
+the lower-triangular array in physical order, and `.active` is a boolean mask in
+logical order. As in `PermutedCholesky`, `.order` maps physical positions to
+logical slots and `.inverse_order` maps back. Inactive slots are independent
+unit entries. Logical slot identities stay fixed while the class manages
+physical ordering internally.
+
+```python
+from cholops import PaddedCholesky
+
+factor = PaddedCholesky.from_factor(jnp.eye(8), active=jnp.zeros(8, dtype=bool))
+indices = jnp.array([5, 1])
+factor = factor.activate(indices, jnp.zeros((8, 2)), jnp.eye(2))
+solution = factor.solve(jnp.ones(8))  # Zero at the six inactive slots.
+```
+
+`from_matrix(A, active=...)` factors an already padded matrix.
+`from_factor(L, active=...)` wraps its lower factor. Both start in logical order.
+The caller supplies independent identity entries at inactive slots. Constructors
+do not infer activity or check numerical independence.
+
+### Activate, replace and deactivate
+
+| Method | Effect |
+| --- | --- |
+| `activate(indices, K, C)` | Fill inactive slots without general deletion updates |
+| `activate_solve(indices, K, C, solution=..., rhs=...)` | Activate and return the new factor and updated coefficients |
+| `replace(indices, K, C)` | Replace occupied, inactive or mixed slots and mark them active |
+| `deactivate(indices)` | Restore selected slots to identity padding |
+
+For activation and replacement, `indices:(r,)` contains distinct logical slots
+in any order. `K:(N,r)` uses full-capacity logical row order. Its columns and
+both axes of symmetric `C:(r,r)` follow the supplied indices order. The class
+ignores selected and retained inactive rows of `K`, including non-finite values.
+`C` supplies the selected covariance block in full. Floating inputs share the
+factor's float32 or float64 dtype, and the target must be positive definite.
+
+The caller must select inactive slots for activation. Occupancy and independence
+are not checked, and activation never switches to general replacement.
+Replacement uses general deletion and block append. Deactivation also uses
+general deletion, followed by independent identity padding. These operations
+preserve capacity, logical slot identities and the retained covariance.
+
+`activate_solve` takes an old solution `(N,)` and the complete new RHS `(N,)`.
+Old active RHS entries must be unchanged. Old inactive solution entries and
+still-inactive RHS entries are ignored. Newly activated RHS entries are used,
+and returned inactive coefficients are zero. For general replacement or
+deactivation, call `solve` afterward when updated coefficients are needed.
+
+### Calculations and streaming
+
+`solve`, `whiten` and `quadratic` accept the same RHS ranks as the other classes,
+with capacity `N` on the first axis. They ignore inactive input entries even
+when non-finite. `solve` returns zero inactive logical entries. `whiten` returns
+physical factor coordinates with zero inactive physical rows. `logdet` already
+excludes padding because each inactive unit entry contributes zero.
+
+Ordinary arithmetic outside the class is not masked. For example, a dot product
+with zero inactive coefficients still requires finite inactive input values.
+
+Activity and permutations are dynamic PyTree leaves. With fixed capacity,
+dtypes and input block shapes, activation reuses compiled code as new data
+arrives. Fixed-shape scans, batching and first-order differentiation are
+supported. See the [plain GP](../examples/plain_gp.py) and
+[fixed-capacity GP](../examples/fixed_size_gp.py) examples for predictions and
+likelihoods checked against fresh fits after each block.

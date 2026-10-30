@@ -21,6 +21,9 @@ JAX_ENABLE_X64=1 uv run --locked python examples/basic_factor.py
 JAX_ENABLE_X64=1 uv run --locked python examples/streaming_gp.py
 JAX_ENABLE_X64=1 uv run --locked python examples/online_least_squares.py
 JAX_ENABLE_X64=1 uv run --locked python examples/tensor_operations.py
+JAX_ENABLE_X64=1 uv run --locked python examples/plain_gp.py
+JAX_ENABLE_X64=1 uv run --locked python examples/growing_gp.py
+JAX_ENABLE_X64=1 uv run --locked python examples/fixed_size_gp.py
 ```
 
 The default suite is the small CI layer. Keep each case within a few seconds,
@@ -46,8 +49,10 @@ Use `--full -m full` to run only additional release tests. See
 The public API is exported from `cholops` and grouped into `cholops.factors`
 and `cholops.tensors`. Leading-underscore modules are private.
 
-`factors/` contains the two factor classes and their shared matrix calculations.
+`factors/` contains the factor classes and their shared matrix calculations.
 The classes own factor storage and, for `PermutedCholesky`, permutation state.
+`PaddedCholesky` wraps a `PermutedCholesky` and manages identity padding with an
+explicit activity mask. Its fixed-capacity methods stay in the padded class.
 `tensors/` contains factorization, append, rank-one updates, deletion and
 replacement. Each algorithm stays with its derivative rules. Private modules
 provide shared validation, indexing and JAX differentiation support.
@@ -57,7 +62,7 @@ import the factor classes. Reuse the tensor implementations rather than
 duplicating them in containers.
 
 State is immutable. No hidden precision changes, jitter, clipping, retry,
-occupancy tracking, memory pool or buffer donation. Test meaningful numerical
+memory pool or buffer donation. Test meaningful numerical
 behavior against independent dense or high-precision references. A small factor
 residual alone does not establish accurate gradients. Preserve signed
 zero-weight derivatives and visible numerical failures.

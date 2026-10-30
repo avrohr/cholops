@@ -17,26 +17,54 @@ from ..tensors import (
 )
 from ..tensors._indexing import _indices, _keep_many
 from ..tensors._validation import _blocks, _factor, _index, _replacement, _vector
+from ._append import _append_solution
 from ._consumers import _logdet, _matrix_rhs, _quadratic, _rhs, _solve, _whiten
 
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True, init=False)
 class PermutedCholesky:
-    """Physical lower factor and inverse permutations, all dynamic PyTree leaves.
+    """Cholesky factor with a managed physical ordering.
 
     order[physical] is logical; inverse_order[logical] is physical. Construct via
     from_matrix or from_factor. Inputs and solutions returned by solve use
-    logical order. Whitening returns factor coordinates. The stored factor
-    is lower triangular in physical order. Floating arrays
+    logical order. Whitening returns factor coordinates. physical_factor
+    exposes the lower-triangular factor in physical order. Floating arrays
     share a real float32 or float64 dtype, and the represented matrix must remain
     positive definite. Modifications return new objects.
     Supports jit, vmap and first-order differentiation of continuous inputs.
     """
 
-    physical_factor: Array
+    _upper: Array
     order: Array
     inverse_order: Array
+
+    def __init__(self, physical_factor: Array, order: Array, inverse_order: Array):
+        # Persist L.T so CPU solves can read column-major L across JIT calls.
+        object.__setattr__(self, "_upper", jnp.swapaxes(physical_factor, -1, -2))
+        object.__setattr__(self, "order", order)
+        object.__setattr__(self, "inverse_order", inverse_order)
+
+    @property
+    def physical_factor(self) -> Array:
+        """Lower-triangular factor in physical order."""
+        return jnp.swapaxes(self._upper, -1, -2)
+
+    @classmethod
+    def _from_upper(cls, upper, order, inverse_order):
+        """Construct from stored arrays without changing their layout."""
+        result = object.__new__(cls)
+        object.__setattr__(result, "_upper", upper)
+        object.__setattr__(result, "order", order)
+        object.__setattr__(result, "inverse_order", inverse_order)
+        return result
+
+    def tree_flatten(self):
+        return (self._upper, self.order, self.inverse_order), None
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        return cls._from_upper(*children)
 
     @classmethod
     def from_matrix(cls, matrix: Array) -> "PermutedCholesky":
@@ -71,6 +99,8 @@ class PermutedCholesky:
         L = self.physical_factor
         n = L.shape[0]
         K, C = _blocks(K, C, L)
+        # L views _upper.T, and construction below retains the upper result
+        # so subsequent CPU operations can reuse its layout.
         result = chol_append(L, K[self.order], C)
         last = jnp.arange(n, n + C.shape[0], dtype=self.order.dtype)
         return type(self)(
@@ -78,6 +108,28 @@ class PermutedCholesky:
             jnp.concatenate((self.order, last)),
             jnp.concatenate((self.inverse_order, last)),
         )
+
+    def append_solve(
+        self, K: Array, C: Array, *, solution: Array, rhs: Array
+    ) -> tuple["PermutedCholesky", Array]:
+        """Append a block and update a solution, with inputs in logical order.
+
+        K:(n,r), C:(r,r), solution:(n,), rhs:(n+r,) share the factor dtype.
+        solution must solve the old system for rhs[:n]. Those RHS entries
+        must be unchanged. Returned coefficients follow the new logical order.
+        """
+        updated = self.append(K, C)
+        L = self.physical_factor
+        n = L.shape[0]
+        solution = _vector(solution, n, L, "solution")
+        rhs = _vector(rhs, updated.physical_factor.shape[0], L, "rhs")
+        coefficients = _append_solution(
+            updated.physical_factor,
+            jnp.asarray(K)[self.order],
+            solution[self.order],
+            rhs[n:],
+        )
+        return updated, coefficients[updated.inverse_order]
 
     def delete(self, indices: Array) -> "PermutedCholesky":
         """Delete logical indices:(r,), preserving survivor order.
