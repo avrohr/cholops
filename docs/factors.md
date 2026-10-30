@@ -8,9 +8,13 @@ from cholops.factors import Cholesky
 
 ## Cholesky
 
-`Cholesky` stores a matrix's lower-triangular Cholesky factor and provides methods
+`Cholesky` represents a matrix's Cholesky factor and provides methods
 for modifying it and solving systems with it. The factor follows the same row
-and column order as the matrix and is available as `.factor`.
+and column order as the matrix and is available as the lower-triangular `.factor`.
+
+The factor objects store the transpose internally to reduce CPU layout
+conversions between operations. Constructors and factor properties use lower
+factors, as do the tensor operations.
 
 ### Construct and use a factor
 
@@ -255,10 +259,12 @@ included in the [managed-factor benchmarks](../benchmarks/README.md#full-benchma
 
 ## PaddedCholesky
 
-`PaddedCholesky` reserves a fixed capacity for streaming data. It exposes a
-`PermutedCholesky` view through `.factor` and a boolean `.active` mask in logical
-order. Inactive slots are independent unit entries. Logical slot identities stay
-fixed while the class manages physical ordering internally.
+`PaddedCholesky` reserves a fixed capacity for streaming data. Its `.factor` is
+the lower-triangular array in physical order, and `.active` is a boolean mask in
+logical order. As in `PermutedCholesky`, `.order` maps physical positions to
+logical slots and `.inverse_order` maps back. Inactive slots are independent
+unit entries. Logical slot identities stay fixed while the class manages
+physical ordering internally.
 
 ```python
 from cholops import PaddedCholesky

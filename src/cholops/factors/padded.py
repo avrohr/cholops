@@ -29,7 +29,7 @@ def _mask_rows(array, active):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True, init=False)
 class PaddedCholesky:
-    """A PermutedCholesky and a logical activity mask, with fixed capacity N.
+    """A lower factor and logical activity mask, with fixed capacity N.
 
     Inactive slots must be independent unit entries. Constructors accept an
     already padded matrix or factor and do not check this numerical property.
@@ -38,37 +38,34 @@ class PaddedCholesky:
     fixed-shape scans and first-order forward and reverse differentiation.
     """
 
-    _upper: Array
-    _order: Array
-    _inverse_order: Array
+    _permuted: PermutedCholesky
     active: Array
 
     def __init__(self, factor: PermutedCholesky, active: Array):
-        # Persist L.T so CPU solves can use column-major L across JIT calls.
-        object.__setattr__(self, "_upper", jnp.swapaxes(factor.physical_factor, -1, -2))
-        object.__setattr__(self, "_order", factor.order)
-        object.__setattr__(self, "_inverse_order", factor.inverse_order)
+        object.__setattr__(self, "_permuted", factor)
         object.__setattr__(self, "active", active)
 
     @property
-    def factor(self) -> PermutedCholesky:
-        """Lower factor and permutations, viewed in the current physical order."""
-        return PermutedCholesky(
-            jnp.swapaxes(self._upper, -1, -2), self._order, self._inverse_order
-        )
+    def factor(self) -> Array:
+        """Lower-triangular factor in physical order."""
+        return self._permuted.physical_factor
+
+    @property
+    def order(self) -> Array:
+        """Map physical positions to logical slots."""
+        return self._permuted.order
+
+    @property
+    def inverse_order(self) -> Array:
+        """Map logical slots to physical positions."""
+        return self._permuted.inverse_order
 
     def tree_flatten(self):
-        return (self._upper, self._order, self._inverse_order, self.active), None
+        return (self._permuted, self.active), None
 
     @classmethod
     def tree_unflatten(cls, aux, children):
-        # JAX also reconstructs tangent and batched states through this method.
-        result = object.__new__(cls)
-        for name, value in zip(
-            ("_upper", "_order", "_inverse_order", "active"), children, strict=True
-        ):
-            object.__setattr__(result, name, value)
-        return result
+        return cls(*children)
 
     @classmethod
     def from_matrix(cls, A: Array, *, active: Array) -> "PaddedCholesky":
@@ -96,8 +93,8 @@ class PaddedCholesky:
         The result has the same shape and exactly zero inactive logical rows.
         Ignored RHS entries may be non-finite. Inputs share the factor dtype.
         """
-        rhs = _rhs(self.factor.physical_factor, rhs)
-        result = self.factor.solve(_mask_rows(rhs, self.active))
+        rhs = _rhs(self.factor, rhs)
+        result = self._permuted.solve(_mask_rows(rhs, self.active))
         return _mask_rows(result, self.active)
 
     def whiten(self, rhs: Array) -> Array:
@@ -106,24 +103,24 @@ class PaddedCholesky:
         Returns physical factor coordinates, with zero inactive physical rows.
         Use (N,1) for one column. Ignored input entries may be non-finite.
         """
-        rhs = _matrix_rhs(self.factor.physical_factor, rhs)
-        result = self.factor.whiten(_mask_rows(rhs, self.active))
-        return _mask_rows(result, self.active[self.factor.order])
+        rhs = _matrix_rhs(self.factor, rhs)
+        result = self._permuted.whiten(_mask_rows(rhs, self.active))
+        return _mask_rows(result, self.active[self.order])
 
     def quadratic(self, rhs: Array) -> Array:
         """Active inverse quadratic form for rhs:(N,) or per column of (N,q).
 
         Inactive logical input entries are ignored, including non-finite ones.
         """
-        rhs = _rhs(self.factor.physical_factor, rhs)
-        return self.factor.quadratic(_mask_rows(rhs, self.active))
+        rhs = _rhs(self.factor, rhs)
+        return self._permuted.quadratic(_mask_rows(rhs, self.active))
 
     def logdet(self) -> Array:
         """Log determinant of the active system. Unit padding contributes zero."""
-        return self.factor.logdet()
+        return self._permuted.logdet()
 
     def _activate(self, indices, K, C):
-        L = self.factor.physical_factor
+        L = self.factor
         n = L.shape[0]
         indices = jnp.asarray(indices)
         _indices(indices, n)
@@ -136,9 +133,9 @@ class PaddedCholesky:
 
         # Solve before moving the factor. Inactive rows of the projection are
         # zero, so the same projection also updates the old solution.
-        projected = self.factor.whiten(_mask_rows(K, self.active))
+        projected = self._permuted.whiten(_mask_rows(K, self.active))
         trailing = cholesky(C - projected.T @ projected)
-        physical = self._inverse_order[indices]
+        physical = self.inverse_order[indices]
         selected = jnp.zeros(n, dtype=bool).at[physical].set(True)
         positions = jnp.arange(n)
         destinations = jnp.where(selected, n, positions - jnp.cumsum(selected))
@@ -149,15 +146,15 @@ class PaddedCholesky:
 
         # Move only the selected independent entries, keeping all survivors in
         # order. Separate gathers avoid a joint two-axis gather on CPU.
-        upper = self._upper[permutation][:, permutation]
+        upper = self._permuted._upper[permutation][:, permutation]
         upper = jax.lax.dynamic_update_slice_in_dim(
             upper, projected[permutation], n - r, axis=1
         )
         upper = jax.lax.dynamic_update_slice(upper, trailing.T, (n - r, n - r))
-        order = self._order[permutation]
+        order = self.order[permutation]
         inverse_order = jnp.zeros_like(order).at[order].set(positions)
         updated = type(self)(
-            PermutedCholesky(upper.T, order, inverse_order),
+            PermutedCholesky._from_upper(upper, order, inverse_order),
             self.active.at[indices].set(True),
         )
         return updated, projected, trailing
@@ -184,7 +181,7 @@ class PaddedCholesky:
         Old inactive solution entries and still-inactive RHS entries are ignored,
         including non-finite values. Returns zero inactive coefficients.
         """
-        L = self.factor.physical_factor
+        L = self.factor
         n = L.shape[0]
         solution = _vector(solution, n, L, "solution")
         rhs = _vector(rhs, n, L, "rhs")
@@ -197,7 +194,7 @@ class PaddedCholesky:
         rhs = _mask_rows(rhs, updated.active)
         beta = _solve(trailing, rhs[indices] - K.T @ solution)
         correction = solve_triangular(L, projected @ beta, lower=True, trans="T")
-        coefficients = solution.at[self._order].add(-correction)
+        coefficients = solution.at[self.order].add(-correction)
         coefficients = coefficients.at[indices].set(beta)
         return updated, _mask_rows(coefficients, updated.active)
 
@@ -210,7 +207,7 @@ class PaddedCholesky:
         inactive or mixed. Uses general deletion and block append. The target
         must be positive definite and C symmetric, with the factor's dtype.
         """
-        L = self.factor.physical_factor
+        L = self.factor
         n = L.shape[0]
         indices = jnp.asarray(indices)
         _indices(indices, n)
@@ -219,8 +216,8 @@ class PaddedCholesky:
             raise ValueError("C must have shape (r,r), matching indices:(r,)")
         if indices.size == 0:
             return self
-        physical = jnp.sort(self._inverse_order[indices])
-        survivors = self._order[_keep_many(n, physical)]
+        physical = jnp.sort(self.inverse_order[indices])
+        survivors = self.order[_keep_many(n, physical)]
         K = _mask_rows(K[survivors], self.active[survivors])
         result = chol_delete_append(L, physical, K, C)
         order = jnp.concatenate((survivors, indices))
@@ -237,9 +234,9 @@ class PaddedCholesky:
         Capacity and the covariance among remaining observations are unchanged.
         """
         indices = jnp.asarray(indices)
-        L = self.factor.physical_factor
+        L = self.factor
         r = indices.size
         updated = self.replace(
             indices, jnp.zeros((L.shape[0], r), L.dtype), jnp.eye(r, dtype=L.dtype)
         )
-        return type(self)(updated.factor, self.active.at[indices].set(False))
+        return type(self)(updated._permuted, self.active.at[indices].set(False))

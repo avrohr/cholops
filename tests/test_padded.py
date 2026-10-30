@@ -32,8 +32,8 @@ def managed(A, active, permuted):
 
 
 def represented(factor):
-    L = factor.factor.physical_factor
-    p = factor.factor.inverse_order
+    L = factor.factor
+    p = factor.inverse_order
     return (L @ L.T)[p[:, None], p]
 
 
@@ -66,7 +66,7 @@ def test_consumers_ignore_inactive_nonfinite_entries_and_their_gradients(
     W = jax.jit(factor.whiten)(matrix)
     B = clean if matrix_rhs else clean[:, None]
     close(W.T @ W, B.T @ jnp.linalg.solve(A, B))
-    np.testing.assert_array_equal(W[~active[factor.factor.order]], 0)
+    np.testing.assert_array_equal(W[~active[factor.order]], 0)
     np.testing.assert_array_equal(factor.solve(rhs)[~active], 0)
 
     def objective(rhs):

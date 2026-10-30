@@ -23,10 +23,10 @@ from ._append import _append_solution
 from ._consumers import _logdet, _matrix_rhs, _quadratic, _rhs, _solve, _whiten
 
 
-@jax.tree_util.register_dataclass
-@dataclass(frozen=True)
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True, init=False)
 class Cholesky:
-    """Canonical lower factor, stored as one dynamic PyTree leaf ``factor``.
+    """Canonical Cholesky factor with a public lower-triangular ``factor``.
 
     Construct with from_matrix or from_factor. Inputs and solutions returned by
     solve follow the matrix's row and column order. Whitening returns factor
@@ -36,7 +36,26 @@ class Cholesky:
     Supports jit, vmap and first-order differentiation.
     """
 
-    factor: Array
+    _upper: Array
+
+    def __init__(self, factor: Array):
+        # Persist L.T so CPU solves can read column-major L across JIT calls.
+        object.__setattr__(self, "_upper", jnp.swapaxes(factor, -1, -2))
+
+    @property
+    def factor(self) -> Array:
+        """Lower-triangular factor in the matrix's row and column order."""
+        return jnp.swapaxes(self._upper, -1, -2)
+
+    def tree_flatten(self):
+        return (self._upper,), None
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        # JAX supplies stored arrays, including tangent and batched states.
+        result = object.__new__(cls)
+        object.__setattr__(result, "_upper", children[0])
+        return result
 
     @classmethod
     def from_matrix(cls, matrix: Array) -> "Cholesky":
@@ -90,6 +109,8 @@ class Cholesky:
         the resulting matrix positive definite.
         Use (n,1) and (1,1) arrays for a single row and column.
         """
+        # factor views _upper.T, and construction stores the result transposed.
+        # Keeping upper storage avoids repeating CPU layout conversions.
         return type(self)(chol_append(self.factor, K, C))
 
     def append_solve(
