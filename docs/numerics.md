@@ -70,10 +70,14 @@ forward calculation also uses scaled norms to avoid unnecessarily squaring
 large intermediate values. These choices improve robustness but do not remove
 all sources of rounding error or overflow.
 
-Deletion gathers the retained factor and the deleted columns once, then applies
-one positive rank-one update per deleted column. This reuses the update algorithm
-and its derivative rules. Work and saved reverse-mode storage grow linearly with
-the number of deleted variables and quadratically with the retained size.
+`chol_update` applies a positive block update with small QR factorizations and
+matrix products. QR avoids forming the small Gram matrices that can lose accuracy
+when the old factor is poorly conditioned. Its derivative also solves with
+the updated factor.
+
+Deletion gathers the retained factor and the deleted columns, then passes both
+to `chol_update`. This uses the same algorithm for one or several deleted variables.
+`chol_delete_one` instead uses `chol_rank1_positive` for a single variable.
 `delete_last` only slices the factor.
 Delete-and-append extends the retained factor with the new block.
 Canonical replacement of one variable combines a positive update and a downdate.

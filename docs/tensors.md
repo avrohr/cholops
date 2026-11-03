@@ -22,22 +22,30 @@ Use `jax.vmap` for batches of modifications.
 | `cholesky(A)` | Lower factor of the symmetric part of `A`; accepts `(...,n,n)` | JVP and reverse |
 | `chol_append(L, K, C)` | Factor of `[[A,K],[K.T,C]]`; `K:(n,r)`, symmetric `C:(r,r)`; output `(n+r,n+r)` | JVP and reverse |
 | `chol_delete(L, indices)` | Remove `r` variables at `indices:(r,)`; survivor order preserved; output `(n-r,n-r)` | JVP and reverse |
+| `chol_delete_one(L, index)` | Remove one variable with the rank-one kernel; scalar `index`; output `(n-1,n-1)` | JVP and reverse |
 | `chol_delete_last(L, r)` | Remove the last `r` variables by slicing; `r` is static | JVP and reverse |
 | `chol_replace(L, start, K, C)` | Replace `start:start+r` at their original positions; `K:(n-r,r)`, symmetric `C:(r,r)` | JVP and reverse |
 | `chol_delete_append(L, indices, K, C)` | Delete `indices:(r,)`, append `s` variables with `K:(n-r,s)`, symmetric `C:(s,s)`; output `(n-r+s,n-r+s)` | JVP and reverse |
 | `chol_replace_last(L, K, C)` | Replace final `r` variables; `K:(n-r,r)`, symmetric `C:(r,r)` | JVP and reverse |
 | `chol_diag_update(L, index, delta)` | Factor of `A + delta * outer(e_index,e_index)`; signed scalar `delta` | JVP and reverse, including zero |
+| `chol_update(L, U)` | Factor of `A + U @ U.T`, with update columns `U:(n,k)` | JVP and reverse |
 | `chol_rank1(L, u, alpha=1.0)` | Factor of `A + alpha * outer(u,u)`; `u:(n,)`, signed scalar `alpha` | JVP and reverse, including zero |
 | `chol_rank1_positive(L, u)` | Factor of `A + outer(u,u)`; `u:(n,)` | JVP and reverse |
 
 `chol_append` always takes block-shaped inputs. For one variable, use `K:(n,1)`
 and `C:(1,1)`. An empty block (`r=0`) leaves the factor unchanged.
 
-Deletion takes a one-dimensional integer array, including `[i]` for one variable.
+`chol_update` applies all columns of `U` together without changing the matrix
+size or ordering. Use `(n,1)` for one column. An empty `(n,0)` update leaves
+the factor unchanged. Positive updates preserve positive definiteness.
+
+`chol_delete` takes a one-dimensional integer array, including `[i]` for one variable.
 Indices must be distinct and refer to the input before deletion. Their order
 does not matter. An empty index array leaves the factor unchanged, and deleting
 all variables returns an empty factor. For `chol_delete_append`, rows of `K`
 follow survivor order and the appended block may have a different size.
+`chol_delete_one(L, i)` selects the specialized `chol_rank1_positive` kernel
+instead of the block update used by `chol_delete`. Its scalar index may be traced.
 
 Replacement takes the block's starting index, `start`, and infers its size from
 `C.shape[0]`. The rows of `K` describe the variables before the block, then those
@@ -51,8 +59,9 @@ first-order tangent map for repeated directions. Higher-order derivatives,
 including Hessians and differentiating through gradients, have not been
 validated for general use. Indices and permutations have no continuous derivative.
 
-`chol_rank1_positive` is the fast positive-only path. `chol_rank1` also accepts
-negative weights; its recurrence can be slower than dense recomputation on a GPU. No input-dependent backend switch occurs. A zero
+`chol_rank1_positive` applies one positive update from a vector. `chol_rank1`
+also accepts negative weights. Its recurrence can be slower than dense
+recomputation on a GPU. No input-dependent backend switch occurs. A zero
 signed weight leaves the factor unchanged but generally has a nonzero
 weight derivative.
 

@@ -10,13 +10,15 @@ from ..tensors import (
     chol_append,
     chol_delete,
     chol_delete_append,
+    chol_delete_one,
     chol_diag_update,
     chol_rank1,
     chol_rank1_positive,
     cholesky,
 )
-from ..tensors._indexing import _indices, _keep_many
+from ..tensors._indexing import _indices, _keep, _keep_many
 from ..tensors._validation import _blocks, _factor, _index, _replacement, _vector
+from ..tensors.update import _update_columns, _update_upper
 from ._append import _append_solution
 from ._consumers import _logdet, _matrix_rhs, _quadratic, _rhs, _solve, _whiten
 
@@ -145,6 +147,20 @@ class PermutedCholesky:
         order = survivors - jnp.searchsorted(indices, survivors)
         return type(self)(result, order, jnp.argsort(order))
 
+    def delete_one(self, index: Array | int) -> "PermutedCholesky":
+        """Delete one logical variable with the rank-one kernel.
+
+        index is an integer scalar in [0,n) and may be traced. Survivor order
+        is preserved, with remaining logical indices renumbered from zero.
+        """
+        n = self.physical_factor.shape[0]
+        index = _index(index, n)
+        physical = self.inverse_order[index]
+        result = chol_delete_one(self.physical_factor, physical)
+        survivors = self.order[_keep(n, physical)]
+        order = survivors - (survivors > index)
+        return type(self)(result, order, jnp.argsort(order))
+
     def replace(self, start: Array | int, K: Array, C: Array) -> "PermutedCholesky":
         """Replace logical variables start:start+r using deletion and block append.
 
@@ -164,7 +180,10 @@ class PermutedCholesky:
         survivors = self.order[_keep_many(n, physical)]
         # Locate the physical survivors in K's compact logical row order.
         compact = survivors - r * (survivors >= start)
-        result = chol_delete_append(L, physical, K[compact], C)
+        if r == 1:
+            result = chol_append(chol_delete_one(L, physical[0]), K[compact], C)
+        else:
+            result = chol_delete_append(L, physical, K[compact], C)
         order = jnp.concatenate((survivors, indices))
         inverse = self.inverse_order - jnp.searchsorted(physical, self.inverse_order)
         inverse = inverse.at[indices].set(jnp.arange(n - r, n, dtype=inverse.dtype))
@@ -188,6 +207,17 @@ class PermutedCholesky:
             self.physical_factor, self.inverse_order[index], delta
         )
         return type(self)(result, self.order, self.inverse_order)
+
+    def update(self, U: Array) -> "PermutedCholesky":
+        """Add U @ U.T, with U:(n,k) in logical order, preserving both orderings.
+
+        Use (n,1) for one column. U shares the factor's dtype. Empty updates
+        are supported. Differentiation is supported through both the factor
+        and U, in forward and reverse mode.
+        """
+        U = _update_columns(U, self._upper)
+        result = _update_upper(self._upper, U[self.order])
+        return type(self)._from_upper(result, self.order, self.inverse_order)
 
     def rank1(self, u: Array, alpha: Array | float = 1.0) -> "PermutedCholesky":
         """Add alpha * outer(u, u), with u:(n,) in logical order.

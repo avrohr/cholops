@@ -198,9 +198,11 @@ def check_permutations(state):
     np.testing.assert_array_equal(state.inverse_order[state.order], np.arange(n))
 
 
-def test_block_replacement_derivatives_with_batched_starts_and_storage_orders():
+@pytest.mark.parametrize("r", [1, 2])
+def test_block_replacement_derivatives_with_batched_starts_and_storage_orders(r):
     A, (K, C) = modification_fixture("append")
-    K = K[:3]
+    K = K[: 5 - r, :r]
+    C = C[:r, :r]
     rhs = jnp.linspace(-0.4, 0.7, 10, dtype=DTYPE).reshape(5, 2)
     starts = jnp.array([0, 1, 3])
     orders = jnp.array([[2, 3, 4, 1, 0], [4, 2, 0, 3, 1], [1, 0, 3, 4, 2]])
@@ -215,7 +217,7 @@ def test_block_replacement_derivatives_with_batched_starts_and_storage_orders():
 
     def reference(A, K, C, rhs, start, order):
         indices = start + jnp.arange(C.shape[0])
-        keep = jnp.setdiff1d(jnp.arange(5), indices, size=3)
+        keep = jnp.setdiff1d(jnp.arange(5), indices, size=5 - r)
         B = (A + A.T) / 2
         B = B.at[keep[:, None], indices].set(K)
         B = B.at[indices[:, None], keep].set(K.T)
