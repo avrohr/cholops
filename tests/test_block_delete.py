@@ -100,6 +100,26 @@ def test_runtime_block_indices_batched_with_shared_factor_and_inputs():
     close(evaluate(actual, (L, K, C)), evaluate(reference, (L, K, C)))
 
 
+def test_deletion_that_improves_conditioning():
+    # Removing the first variable repairs the small pivot in the retained
+    # factor. Derivatives must include both retained and deleted columns.
+    delta, c = 0.01, 1 / np.sqrt(2)
+    q = np.sqrt(1 + delta**2)
+    L = jnp.eye(10, dtype=DTYPE)
+    L = L.at[1, 0].set(1 / q).at[1, 1].set(delta / q)
+    L = L.at[2, 1].set(c).at[2, 2].set(c)
+    deleted = jnp.asarray([0, 3, 4, 5, 6, 7, 8, 9])
+
+    def actual(L):
+        return chol_delete(L, deleted)
+
+    def reference(L):
+        rows = jnp.tril(L)[1:3]
+        return jnp.linalg.cholesky(rows @ rows.T)
+
+    close(evaluate(actual, (L,)), evaluate(reference, (L,)))
+
+
 @pytest.mark.parametrize("cls", [Cholesky, PermutedCholesky])
 @pytest.mark.parametrize(
     "deleted,s",

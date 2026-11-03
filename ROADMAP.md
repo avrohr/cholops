@@ -8,5 +8,4 @@
 
 ## Possible extensions
 
-- [ ] Rank-k updates.
 - [ ] Faster signed updates and downdates.

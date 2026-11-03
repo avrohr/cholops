@@ -11,6 +11,7 @@ from ..tensors import (
     chol_delete,
     chol_delete_append,
     chol_delete_last,
+    chol_delete_one,
     chol_diag_update,
     chol_rank1,
     chol_rank1_positive,
@@ -19,6 +20,7 @@ from ..tensors import (
     cholesky,
 )
 from ..tensors._validation import _factor, _vector
+from ..tensors.update import _update_columns, _update_upper
 from ._append import _append_solution
 from ._consumers import _logdet, _matrix_rhs, _quadratic, _rhs, _solve, _whiten
 
@@ -51,11 +53,15 @@ class Cholesky:
         return (self._upper,), None
 
     @classmethod
-    def tree_unflatten(cls, aux, children):
-        # JAX supplies stored arrays, including tangent and batched states.
+    def _from_upper(cls, upper):
+        """Construct from the stored factor without changing its layout."""
         result = object.__new__(cls)
-        object.__setattr__(result, "_upper", children[0])
+        object.__setattr__(result, "_upper", upper)
         return result
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        return cls._from_upper(children[0])
 
     @classmethod
     def from_matrix(cls, matrix: Array) -> "Cholesky":
@@ -139,6 +145,13 @@ class Cholesky:
         """
         return type(self)(chol_delete(self.factor, indices))
 
+    def delete_one(self, index: Array | int) -> "Cholesky":
+        """Delete one variable with the rank-one kernel, preserving survivor order.
+
+        index is an integer scalar in [0,n) and may be traced.
+        """
+        return type(self)(chol_delete_one(self.factor, index))
+
     def delete_last(self, r: int) -> "Cholesky":
         """Remove the last r variables by slicing. r must be static and in [0,n]."""
         return type(self)(chol_delete_last(self.factor, r))
@@ -178,6 +191,16 @@ class Cholesky:
         The target must be positive definite.
         """
         return type(self)(chol_diag_update(self.factor, index, delta))
+
+    def update(self, U: Array) -> "Cholesky":
+        """Add U @ U.T, with U:(n,k) in matrix order, preserving size and order.
+
+        Use (n,1) for one column. U shares the factor's dtype. Empty updates
+        are supported. Differentiation is supported through both the factor
+        and U, in forward and reverse mode.
+        """
+        U = _update_columns(U, self._upper)
+        return type(self)._from_upper(_update_upper(self._upper, U))
 
     def rank1(self, u: Array, alpha: Array | float = 1.0) -> "Cholesky":
         """Add alpha * outer(u,u), u:(n,), preserving order and size.

@@ -1,71 +1,21 @@
-"""Block deletion and delete-and-append using positive rank-one updates."""
+"""Block deletion and delete-and-append using a positive block update."""
 
 import operator
 
-import jax
 import jax.numpy as jnp
-from jax import Array, lax
+from jax import Array
 
-from ._autodiff import tangent_map
-from ._indexing import _indices, _keep_many
-from ._validation import _blocks, _factor
+from ._indexing import _indices, _keep, _keep_many
+from ._validation import _blocks, _factor, _index
 from .append import _append_block
-from .rank_one import _update_bwd, _update_fwd, _update_pushforward
+from .rank_one import chol_rank1_positive
+from .update import chol_update
 
 
 def _extract(L, keep, indices):
     rows = jnp.take(L, keep, axis=0)
-    return jnp.take(rows, keep, axis=1), jnp.take(rows, indices, axis=1)
-
-
-def _delete_fwd(L, indices, keep):
-    retained, columns = _extract(L, keep, indices)
-    Y, updates = lax.scan(_update_fwd, retained, columns.T)
-    return Y, (indices, keep, updates)
-
-
-def _delete_bwd(saved, cotangent):
-    indices, keep, updates = saved
-
-    def step(G, update):
-        return _update_bwd(update, G)
-
-    grad_retained, grad_columns = lax.scan(step, cotangent, updates, reverse=True)
-    n = keep.size + indices.size
-    # Scatter whole rows/columns with one-dimensional indices.
-    columns = jnp.zeros((n, keep.size), dtype=cotangent.dtype)
-    columns = columns.at[keep].set(grad_retained.T).at[indices].set(grad_columns)
-    result = jnp.zeros((n, n), dtype=cotangent.dtype).at[keep].set(columns.T)
-    return jnp.tril(result)
-
-
-def _delete_pushforward(saved, dL):
-    indices, keep, updates = saved
-    dM, dU = _extract(dL, keep, indices)
-
-    def step(dM, inputs):
-        update, du = inputs
-        return _update_pushforward(update, (dM, du)), None
-
-    return lax.scan(step, dM, (updates, dU.T))[0]
-
-
-@jax.custom_jvp
-def _delete(L, indices, keep):
-    retained, columns = _extract(L, keep, indices)
-
-    def step(M, u):
-        return _update_fwd(M, u)[0], None
-
-    return lax.scan(step, retained, columns.T)[0]
-
-
-@_delete.defjvp
-def _delete_jvp(primals, tangents):
-    L, indices, keep = primals
-    dL, _, _ = tangents
-    Y, saved = _delete_fwd(L, indices, keep)
-    return Y, tangent_map(_delete_bwd, saved, dL, Y, _delete_pushforward)
+    # Gather rows of the transpose so reverse mode scatters contiguous rows.
+    return jnp.take(rows.T, keep, axis=0).T, jnp.take(rows.T, indices, axis=0).T
 
 
 def _delete_last(L, r):
@@ -82,9 +32,9 @@ def chol_delete(L: Array, indices: Array) -> Array:
     Index values may be traced, but their count is static. Traced values are
     not checked at runtime. Supports jit, vmap and first-order JVP and VJP rules.
 
-    Applies r positive rank-one updates to the retained factor, with
-    O(r*(n-r)^2) work and reverse-mode storage. Use chol_delete_last for
-    trailing deletion by slicing.
+    Applies chol_update to the retained factor and deleted columns, including
+    for a single deletion. Use chol_delete_one to select the rank-one kernel,
+    or chol_delete_last for trailing deletion by slicing.
     """
     L = _factor(L)
     indices = _indices(indices, L.shape[0])
@@ -93,7 +43,21 @@ def chol_delete(L: Array, indices: Array) -> Array:
     if indices.size == L.shape[0]:
         return L[:0, :0]
     keep = _keep_many(L.shape[0], indices)
-    return _delete(L, indices, keep)
+    retained, columns = _extract(L, keep, indices)
+    return chol_update(retained, columns)
+
+
+def chol_delete_one(L: Array, index: Array | int) -> Array:
+    """Delete one variable using chol_rank1_positive, preserving survivor order.
+
+    index is an integer scalar in [0,n) and may be traced. The result has
+    shape (n-1,n-1), including an empty factor when n=1. Traced index values
+    are not checked at runtime. Supports jit, vmap and first-order JVP and VJP.
+    """
+    L = _factor(L)
+    index = _index(index, L.shape[0])
+    retained, columns = _extract(L, _keep(L.shape[0], index), index[None])
+    return chol_rank1_positive(retained, columns[:, 0])
 
 
 def chol_delete_last(L: Array, r: int) -> Array:
@@ -119,7 +83,7 @@ def chol_delete_append(L: Array, indices: Array, K: Array, C: Array) -> Array:
     All floating inputs share a real float32/64 dtype.
 
     Supports jit, vmap and first-order JVP and VJP rules. Equal block sizes
-    preserve the factor shape for lax.scan. Deletion uses positive rank-one updates,
+    preserve the factor shape for lax.scan. Deletion uses chol_update,
     followed by block append with the symmetry-preserving Cholesky reverse rule.
     Use chol_replace_last for equal-sized trailing-block replacement.
     """

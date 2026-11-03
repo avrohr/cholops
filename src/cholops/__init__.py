@@ -6,11 +6,13 @@ from .tensors import (
     chol_delete,
     chol_delete_append,
     chol_delete_last,
+    chol_delete_one,
     chol_diag_update,
     chol_rank1,
     chol_rank1_positive,
     chol_replace,
     chol_replace_last,
+    chol_update,
     cholesky,
 )
 
@@ -21,6 +23,7 @@ __all__ = [
     "cholesky",
     "chol_append",
     "chol_delete",
+    "chol_delete_one",
     "chol_delete_last",
     "chol_diag_update",
     "chol_rank1",
@@ -28,4 +31,5 @@ __all__ = [
     "chol_delete_append",
     "chol_replace",
     "chol_replace_last",
+    "chol_update",
 ]

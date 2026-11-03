@@ -1,6 +1,7 @@
 # Update, deletion and replacement adjoints
 
 This note explains the formulas in [rank_one.py](../src/cholops/tensors/rank_one.py),
+[update.py](../src/cholops/tensors/update.py),
 [deletion.py](../src/cholops/tensors/deletion.py)
 and [replacement.py](../src/cholops/tensors/replacement.py). It concerns real lower factors
 with positive diagonals and positive-definite targets. Indices are fixed during
@@ -152,15 +153,21 @@ The [update tests](../tests/test_updates.py),
 independent dense or high-precision references. The
 [numerical limits](numerics.md#conditioning-and-precision) still apply.
 
-## Block deletion
+## Block updates and deletion
 
-Deletion applies one positive rank-one update per deleted column to the retained
-factor. The forward derivative passes the factor tangent through these updates.
-The reverse pass applies their existing reverse rules in reverse order, then
-scatters the cotangents back to the input factor.
+`chol_update` generalizes the positive update to a matrix of columns $U$.
+Small QR prefix factors determine the update coefficients, and matrix products
+in panels assemble the result. The JVP solves with the updated factor and uses
+these coefficients to keep the tangent lower triangular. JAX transposes this
+linear tangent calculation for the reverse pass, without differentiating through
+the prefix QR factorizations or the solve with the old factor.
 
-Each update saves the state needed by its derivative rule. Work and saved
-reverse-mode storage are O(r*m^2), where r is the number deleted and m is the
-number retained. The [block-deletion tests](../tests/test_block_delete.py) compare
+Deletion extracts a retained factor $B$ and deleted columns $U$, then calls
+`chol_update(B, U)` to factor $BB^T + UU^T$. This also applies to deleting one
+variable. `chol_delete_one` uses the positive rank-one update and its derivative
+rule instead. Differentiation through the gathers scatters both input cotangents
+back to the original factor. There is no separate deletion derivative rule.
+The [block-update tests](../tests/test_rank_update.py) and
+[block-deletion tests](../tests/test_block_delete.py) compare
 values and both derivative modes with dense recomputation, including runtime
 indices, batching and checkpointed sequences.

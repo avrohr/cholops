@@ -95,11 +95,13 @@ Each method returns a new `Cholesky` object and leaves the original unchanged.
 | `append(K, C)` | Add `r` rows and columns, with `K:(n,r)` and symmetric `C:(r,r)` |
 | `append_solve(K, C, solution=..., rhs=...)` | Append a block and reuse the old solution to solve the enlarged system |
 | `delete(indices)` | Remove `indices:(r,)`, preserving the order of the remaining entries |
+| `delete_one(index)` | Remove one variable using the rank-one kernel, with a scalar index |
 | `delete_last(r)` | Remove the final `r` rows and columns by slicing; `r` is static |
 | `replace(start, K, C)` | Replace `start:start+r` at their original positions, with `K:(n-r,r)` and symmetric `C:(r,r)` |
 | `delete_append(indices, K, C)` | Delete `indices:(r,)` and append `s` variables, with `K:(n-r,s)` and symmetric `C:(s,s)` |
 | `replace_last(K, C)` | Replace the final `r` rows and columns, with `K:(n-r,r)` and `C:(r,r)` |
 | `diag_update(index, delta)` | Add signed `delta` to one matrix diagonal entry |
+| `update(U)` | Add `U @ U.T`, with update columns `U:(n,k)`, preserving size and order |
 | `rank1(u, alpha=1.0)` | Add `alpha * outer(u,u)`, with `u:(n,)` and signed weight `alpha` |
 | `rank1_positive(u)` | Add `outer(u,u)` using the optimized positive-update algorithm |
 
@@ -114,6 +116,7 @@ See the [growing GP example](../examples/growing_gp.py).
 
 `delete` and `delete_append` take an integer array of distinct indices, including
 `jnp.array([i])` for one variable. Indices refer to the input before deletion.
+`delete_one(i)` selects the specialized positive rank-one kernel instead.
 For `replace`, `start` gives the first variable and `C.shape[0]` gives the block
 size. The rows of `K` describe the variables before the block, then those after
 it. Its columns and both axes of `C` follow the new block's order. Use block
@@ -128,6 +131,10 @@ Deletion renumbers the remaining indices from zero.
 the leading factor and recomputes only the trailing block.
 This makes small trailing-block replacements efficient and avoids the downdate
 used by general index-preserving replacement.
+
+`update(U)` applies a positive update with one or more columns. Use `(n,1)`
+for a single column and `(n,0)` for an empty update. Rows follow matrix order
+for `Cholesky` and logical order for `PermutedCholesky`.
 
 `rank1` accepts positive, negative and zero weights. The derivative with respect
 to the weight is generally nonzero even at zero. Use `rank1_positive` when you
@@ -231,7 +238,8 @@ For all supported methods, supply indices and arrays in logical order.
 `replace` preserves logical positions. `delete_append` deliberately moves the
 replacement to the end of logical order, just as it does on `Cholesky`.
 Append adds new logical indices at the end, and delete renumbers the surviving
-logical indices from zero. The object updates its internal maps for each operation.
+logical indices from zero. `update` preserves the existing physical ordering
+and permutation maps.
 
 Both `from_matrix` and `from_factor` start with identical logical and physical
 ordering. Methods return new objects. JIT, batching, fixed-size scans and
