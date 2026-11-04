@@ -1,13 +1,16 @@
 # Benchmarks
 
-This page presents H100 results for all six operations in the main benchmark:
-append, delete, positive rank-one update, replacement, delete-and-append, and
-trailing-block replacement. Each is measured in float32 and float64, in forward,
-reverse and JVP modes, at matrix sizes 512–16,384.
+This page presents H100 results for cholops 0.2.0. The seven main operations are
+append, general deletion, single-variable deletion, positive rank-one update,
+replacement, delete-and-append, and trailing-block replacement. Each is measured
+in float32 and float64, in forward, reverse and JVP modes, at matrix sizes
+512–16,384.
 
-All six operations were faster than dense JAX recomputation on the measured
-fixtures. The advantage generally grows with matrix size. The plots show the
-full range, and the tables give absolute times at **16,384 × 16,384**.
+All seven operations were faster than dense JAX recomputation at size 16,384.
+Forward delete-and-append was slower at size 512 in both precisions and at
+1,024 in float64. Forward deletion was also slower at 512 in float32.
+The plots show the full range, and the tables give absolute times at
+**16,384 × 16,384**.
 
 ## What the timings include
 
@@ -24,6 +27,9 @@ continuous input. Both the primal calculation and reverse pass are timed.
 one input direction.
 Indexed operations modify the first variable. Trailing-block replacement
 changes four variables.
+Both deletion benchmarks remove one variable. `chol_delete_one` uses the
+specialized rank-one kernel and is faster than `chol_delete` across the measured
+sizes and modes.
 
 These are warm execution times. Each point is the median of three process
 medians, and shading spans their minimum and maximum. Compilation and cold
@@ -33,38 +39,40 @@ median.
 
 ## Float32 results
 
-![All six operations in float32, with forward, value-plus-gradient and JVP timings](figures/operations-float32.png)
+![All seven operations in float32, with forward, value-plus-gradient and JVP timings](figures/operations-float32.png)
 
 At **16,384**, times in milliseconds:
 
 | Operation | Forward cholops / JAX (ms) | Value + gradient cholops / JAX (ms) |
 | --- | ---: | ---: |
-| `chol_append` | 5.17 / 242.58 | 8.23 / 1021.03 |
-| `chol_delete` | 7.57 / 241.39 | 20.40 / 1032.96 |
-| `chol_rank1_positive` | 4.65 / 213.10 | 17.55 / 1000.16 |
-| `chol_replace` | 13.31 / 209.73 | 43.30 / 984.93 |
-| `chol_delete_append` | 8.39 / 215.69 | 23.95 / 1012.61 |
-| `chol_replace_last` | 5.87 / 214.33 | 13.62 / 999.27 |
+| `chol_append` | 4.12 / 241.04 | 9.05 / 1004.13 |
+| `chol_delete` | 8.29 / 239.73 | 25.65 / 1018.12 |
+| `chol_delete_one` | 6.24 / 237.48 | 21.28 / 1008.08 |
+| `chol_rank1_positive` | 5.33 / 211.63 | 18.75 / 988.93 |
+| `chol_replace` | 12.79 / 209.69 | 38.68 / 983.37 |
+| `chol_delete_append` | 12.01 / 212.22 | 32.41 / 1002.22 |
+| `chol_replace_last` | 5.14 / 211.88 | 14.25 / 990.46 |
 
 ## Float64 results
 
-![All six operations in float64, with forward, value-plus-gradient and JVP timings](figures/operations-float64.png)
+![All seven operations in float64, with forward, value-plus-gradient and JVP timings](figures/operations-float64.png)
 
 At **16,384**, times in milliseconds:
 
 | Operation | Forward cholops / JAX (ms) | Value + gradient cholops / JAX (ms) |
 | --- | ---: | ---: |
-| `chol_append` | 8.39 / 218.90 | 9.75 / 1106.23 |
-| `chol_delete` | 11.51 / 222.41 | 28.78 / 1096.31 |
-| `chol_rank1_positive` | 7.80 / 213.09 | 26.75 / 977.39 |
-| `chol_replace` | 19.84 / 202.27 | 61.60 / 961.97 |
-| `chol_delete_append` | 13.02 / 217.27 | 32.31 / 998.61 |
-| `chol_replace_last` | 10.44 / 211.73 | 20.94 / 979.77 |
+| `chol_append` | 6.03 / 217.59 | 10.26 / 1098.38 |
+| `chol_delete` | 13.34 / 218.86 | 40.57 / 1083.16 |
+| `chol_delete_one` | 9.31 / 219.30 | 26.24 / 1082.92 |
+| `chol_rank1_positive` | 10.07 / 212.18 | 28.23 / 953.62 |
+| `chol_replace` | 18.35 / 201.61 | 53.98 / 951.94 |
+| `chol_delete_append` | 19.58 / 213.55 | 49.85 / 978.27 |
+| `chol_replace_last` | 8.56 / 213.51 | 18.61 / 958.31 |
 
 The two tables compare cholops with dense recomputation. For single-variable
 replacement, the plots also show the naive baseline. At 16,384, its forward and
-value-plus-gradient times are 283.58 / 1295.88 ms in float32 and
-319.26 / 1413.17 ms in float64. The compact [summary](summary.csv) contains all
+value-plus-gradient times are 279.29 / 1296.02 ms in float32 and
+300.42 / 1365.90 ms in float64. The compact [summary](summary.csv) contains all
 sizes, modes and implementations.
 
 A caller that already stores its covariance can avoid reconstructing `L @ L.T`.
@@ -79,12 +87,13 @@ working-set estimates are for **float64 at 16,384**:
 
 | Operation | Forward cholops / JAX (GiB) | Value + gradient cholops / JAX (GiB) |
 | --- | ---: | ---: |
-| `chol_append` | 6.00 / 8.00 | 4.00 / 12.00 |
-| `chol_delete` | 6.13 / 8.00 | 12.02 / 12.03 |
-| `chol_rank1_positive` | 6.13 / 8.00 | 12.14 / 10.03 |
-| `chol_replace` | 10.13 / 8.00 | 18.25 / 14.50 |
-| `chol_delete_append` | 6.13 / 6.03 | 12.02 / 16.50 |
-| `chol_replace_last` | 6.00 / 8.00 | 6.00 / 12.00 |
+| `chol_append` | 4.00 / 8.00 | 6.00 / 12.00 |
+| `chol_delete` | 8.00 / 8.00 | 12.52 / 12.03 |
+| `chol_delete_one` | 6.13 / 8.00 | 10.14 / 12.03 |
+| `chol_rank1_positive` | 4.13 / 8.00 | 14.14 / 10.03 |
+| `chol_replace` | 8.13 / 8.00 | 14.25 / 14.50 |
+| `chol_delete_append` | 8.00 / 6.03 | 12.50 / 16.50 |
+| `chol_replace_last` | 4.00 / 8.00 | 6.00 / 12.00 |
 
 The working set is arguments + outputs + temporaries - aliases. These are
 compiler estimates, not measured peak GPU allocations. Values are the largest
@@ -98,10 +107,11 @@ Numerical differences are recorded alongside timings without filtering samples
 or changing outputs. The [numerical tests](../TESTING.md) check factors and
 gradients on specified fixtures.
 
-One float32 delete-and-append case at 8,192 illustrates why disagreement with
-recomputation needs interpretation. Its weighted scalar loss differed by about
-0.00071 relative. Promoting the same inputs and loss weights to float64 showed
-that cancellation in the float32 baseline caused most of the discrepancy:
+In the 0.1.0 campaign, one float32 delete-and-append case at 8,192 illustrated
+why disagreement with recomputation needs interpretation. Its weighted scalar
+loss differed by about 0.00071 relative. Promoting the same inputs and loss
+weights to float64 showed that cancellation in the float32 baseline caused most
+of the discrepancy:
 
 | Relative error against the same-input float64 reference | cholops float32 | JAX float32 |
 | --- | ---: | ---: |
@@ -114,10 +124,12 @@ application and conditioning of its matrices.
 
 ## Reproduce the results
 
-The recorded campaign used an NVIDIA H100 with 95,830 MiB reported memory,
-32 CPU threads per process, JAX/JAXlib 0.11.2, NumPy 2.5.4 and Python 3.13.17.
+The recorded campaign used the same library and benchmark code as `v0.2.0`.
+It ran on an NVIDIA H100 with
+95,830 MiB reported memory, driver 595.91.07, 32 CPU threads per process,
+JAX/JAXlib 0.11.2, NumPy 2.5.4 and Python 3.13.17.
 Float32 and float64 ran in separate processes with matrix multiplication
-precision set to `highest`. All 720 planned cases completed without skips.
+precision set to `highest`. All 828 planned cases completed without skips.
 
 ### Run the campaign
 
@@ -143,7 +155,7 @@ The default plan contains 828 cases: 756 for seven operation curves and
 72 for the additional workloads below. It uses six sizes, two precisions,
 forward, reverse and JVP modes, and three process repeats. The seventh operation,
 `chol_delete_one`, uses the same inputs as `chol_delete` to compare the specialized
-single-variable path. Its results are not yet included in the figures above.
+single-variable path.
 Output directories for plans and cases must be new. Use `--backend cpu` for a CPU
 campaign and omit the CUDA extra when installing its environment. Select `--sizes`
 and `--dtypes` for smaller runs.
@@ -206,8 +218,9 @@ the mean sequence loss with respect to initial features, incoming features and
 scale. Their measurements are included in [summary.csv](summary.csv).
 
 At size 4,096, both signed updates were slower than dense recomputation. In
-float64, their forward times were about 102 ms versus 4.84 ms for recomputation.
-Value + gradient took 481–485 ms versus 18.64–18.83 ms.
+float64, their forward times were 94.64–95.82 ms versus 4.94–4.97 ms for
+recomputation. Value + gradient took 395.95–396.83 ms versus
+18.74–18.99 ms.
 
 ## Code layout
 
