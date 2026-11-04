@@ -61,7 +61,7 @@ def test_replacement_and_all_continuous_vjps(n, index):
 
         def evaluate(fn):
             def f(L, i, k, c):
-                return jnp.sum(fn(L, i, k, c) * W)
+                return jnp.sum(fn(jnp.tril(L), i, k, c) * W)
 
             grad = jax.value_and_grad(f, argnums=(0, 2, 3))
             return (
@@ -87,9 +87,8 @@ def test_replacement_and_all_continuous_vjps(n, index):
     close(shifted @ shifted.T, expected[np.ix_(order, order)])
 
 
-def test_dynamic_batch_shared_inputs_and_ignored_upper_triangle():
+def test_dynamic_batch_shared_inputs():
     L, _, _ = fixture(7, 0)
-    L = L.at[jnp.triu_indices(7, 1)].set(jnp.nan)
     factors = jnp.stack((L, 1.2 * L, 0.9 * L))
     indices = jnp.array([0, 3, 6])
     k = jnp.linspace(0.01, 0.1, 6, dtype=L.dtype)[:, None]
@@ -99,7 +98,8 @@ def test_dynamic_batch_shared_inputs_and_ignored_upper_triangle():
         fn = jax.vmap(fn, (0, 0, None, None))
         return jax.jit(
             jax.value_and_grad(
-                lambda L, k, c: jnp.sum(fn(L, indices, k, c)), argnums=(0, 1, 2)
+                lambda L, k, c: jnp.sum(fn(jnp.tril(L), indices, k, c)),
+                argnums=(0, 1, 2),
             )
         )(factors, k, c)
 

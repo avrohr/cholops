@@ -5,6 +5,7 @@ import jax.numpy as jnp
 from jax import Array
 from jax.scipy.linalg import solve_triangular
 
+from ._autodiff import tangent_map
 from ._validation import _factor
 
 
@@ -56,13 +57,24 @@ def _unpack(blocks, n):
     return jnp.tril(blocks.transpose(1, 0, 2).reshape(size, size)[:n, :n])
 
 
+def _panel_prefix(products):
+    def prefix(_, values):
+        return jnp.concatenate(
+            (jnp.zeros_like(values[:1]), jnp.cumsum(values, axis=0)[:-1]), axis=0
+        )
+
+    # Keep the transpose as a reverse prefix. Differentiating the slice can
+    # otherwise lower to a full-width reduction window on the GPU.
+    return tangent_map(
+        lambda _, G: prefix((), G[::-1])[::-1], (), products, products, prefix
+    )
+
+
 def _upper_product(T, A, B):
     """Lower triangle of T @ triu(A @ B.T, 1), with quadratic low-rank work."""
     panels, A, B = _panels(T, A, B)
     products = panels @ A
-    prefix = jnp.concatenate(
-        (jnp.zeros_like(products[:1]), jnp.cumsum(products, axis=0)[:-1]), axis=0
-    )
+    prefix = _panel_prefix(products)
     local = jnp.triu(A @ B.swapaxes(-1, -2), 1)
     return _unpack(panels @ local + prefix @ B.swapaxes(-1, -2), T.shape[0])
 
@@ -105,7 +117,7 @@ def _pushforward(Y, U, W, V, c, dL, dU):
 
 @jax.custom_jvp
 def _update_upper(R, U):
-    L = jnp.triu(R).T
+    L = R.T
     if not L.shape[0] or not U.shape[1]:
         return L.T
     return _assemble(L, U, *_coefficients(L, U)).T
@@ -115,7 +127,7 @@ def _update_upper(R, U):
 def _update_jvp(primals, tangents):
     R, U = primals
     dR, dU = tangents
-    L = jnp.triu(R).T
+    L = R.T
     if not L.shape[0] or not U.shape[1]:
         return L.T, jnp.triu(dR)
     W, V, c = _coefficients(L, U)
@@ -128,8 +140,8 @@ def chol_update(L: Array, U: Array) -> Array:
 
     L:(n,n) is a lower factor with a positive diagonal. U:(n,k) contains the
     update columns. Use (n,1) for one column. Both arrays share a real float32
-    or float64 dtype. The unused upper triangle of L is ignored. Empty factors
-    and k=0 are supported. A positive update preserves positive definiteness.
+    or float64 dtype. Empty factors and k=0 are supported. A positive update
+    preserves positive definiteness.
 
     Applies the block together using a triangular solve, small QR prefix factors
     and panel assembly. Derivatives solve with the updated factor. Supports jit,

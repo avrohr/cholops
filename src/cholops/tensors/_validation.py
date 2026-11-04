@@ -10,7 +10,7 @@ def _factor(L: Array) -> Array:
         raise ValueError("L must be a square, unbatched matrix; batch with jax.vmap")
     if L.dtype not in (jnp.float32, jnp.float64):
         raise TypeError("L must have a real float32 or float64 dtype")
-    return jnp.tril(L)
+    return L
 
 
 def _vector(x: Array, n: int, L: Array, name: str) -> Array:

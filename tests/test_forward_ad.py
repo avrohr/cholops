@@ -12,6 +12,7 @@ from cholops import (
     chol_delete_append,
     chol_rank1_positive,
     chol_replace,
+    chol_update,
     cholesky,
 )
 
@@ -51,6 +52,7 @@ def test_replacement_tangent_all_inputs_and_duality(index, append):
     L = jnp.linalg.cholesky(jnp.eye(5) + 0.2 * jnp.ones((5, 5)))
     args = L, jnp.linspace(-0.1, 0.2, 4), jnp.asarray(1.5)
     tangents = jax.tree.map(direction, args)
+    tangents = (jnp.tril(tangents[0]), *tangents[1:])
     fn = chol_delete_append if append else chol_replace
     G = direction(L)
 
@@ -62,7 +64,7 @@ def test_replacement_tangent_all_inputs_and_duality(index, append):
 
         value, tangent = jax.jvp(operation, args, tangents)
         gradients = jax.vjp(operation, *args)[1](G)
-        return value, tangent, gradients
+        return value, tangent, (jnp.tril(gradients[0]), *gradients[1:])
 
     def reference(L, k, c):
         return replaced(L, index, k, c, append)
@@ -77,7 +79,9 @@ def test_replacement_tangent_all_inputs_and_duality(index, append):
         )
 
 
-@pytest.mark.parametrize("name", ["cholesky", "positive", "delete", "replace"])
+@pytest.mark.parametrize(
+    "name", ["cholesky", "positive", "update", "delete", "replace"]
+)
 def test_jacfwd_matches_jacrev_and_independent_dense(name):
     L = jnp.array([[1.3, 0.0, 0.0], [0.2, 1.1, 0.0], [-0.1, 0.3, 1.2]])
     u = jnp.array([0.1, -0.2, 0.05])
@@ -88,6 +92,12 @@ def test_jacfwd_matches_jacrev_and_independent_dense(name):
 
         def ref(L):
             return jnp.linalg.cholesky(covariance(L) + jnp.outer(u, u))
+    elif name == "update":
+        U = jnp.stack((u, u[::-1]), axis=1)
+        x, fn = L, lambda L: chol_update(L, U)
+
+        def ref(L):
+            return jnp.linalg.cholesky(covariance(L) + U @ U.T)
     elif name == "delete":
         x, fn = L, lambda L: chol_delete(L, jnp.asarray([1]))
 
@@ -106,6 +116,13 @@ def test_jacfwd_matches_jacrev_and_independent_dense(name):
         def ref(L):
             return replaced(L, 1, u[:2], 1.5)
 
+    if name != "cholesky":
+        operation = fn
+
+        # Differentiate the independent entries of the lower factor.
+        def fn(L):
+            return operation(jnp.tril(L))
+
     forward_jacobian = jax.jit(jax.jacfwd(fn))(x)
     close(forward_jacobian, jax.jit(jax.jacrev(fn))(x))
     close(forward_jacobian, jax.jacfwd(ref)(x))
@@ -119,7 +136,6 @@ def test_deletion_shared_factor_batched_indices(n):
     # All deletion branches share one factor, so their adjoints must add.
     # The singleton also exercises the empty output and its zero pullback.
     L = jnp.linalg.cholesky(jnp.eye(n) + 0.2 * jnp.ones((n, n)))
-    L = L.at[jnp.triu_indices(n, 1)].set(jnp.nan)
     indices = jnp.arange(n)
 
     def candidate(L):
@@ -135,22 +151,23 @@ def test_deletion_shared_factor_batched_indices(n):
 
         return jax.vmap(one)(indices)
 
-    tangent = direction(L)
+    tangent = jnp.tril(direction(L))
     G = direction(candidate(L))
 
     def evaluate(fn, L):
-        return *jax.jvp(fn, (L,), (tangent,)), jax.vjp(fn, L)[1](G)
+        gradient = jax.vjp(fn, L)[1](G)[0]
+        return *jax.jvp(fn, (L,), (tangent,)), jnp.tril(gradient)
 
     close(jax.jit(lambda L: evaluate(candidate, L))(L), evaluate(reference, L))
 
 
-def test_batched_dynamic_indices_shared_tangents_and_unused_triangle():
+def test_batched_dynamic_indices_shared_tangents():
     L = jnp.linalg.cholesky(jnp.eye(5) + 0.2 * jnp.ones((5, 5)))
-    L = L.at[jnp.triu_indices(5, 1)].set(jnp.nan)
     factors = jnp.stack([L, L * 1.2, L * 0.9, L * 1.1])
     indices = jnp.asarray([0, 2, 3, 4])
     args = factors, jnp.linspace(-0.1, 0.2, 4), jnp.asarray(1.5)
     tangents = jax.tree.map(direction, args)
+    tangents = (jnp.tril(tangents[0]), *tangents[1:])
     for fn in (chol_replace, chol_delete_append):
 
         def mapped(L, k, c):

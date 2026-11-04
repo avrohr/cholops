@@ -23,9 +23,10 @@ The default suite runs in CI on Python 3.12 and 3.13. Additional tests are marke
 | `--full -m full` | Only the additional tests. |
 | `--full --require-gpu` | Full suite, failing immediately if no GPU is active. |
 
-For CUDA, install the `cuda13` extra and set `JAX_PLATFORMS=cuda`. Run both
-precisions as on CPU. GPU storage checks are skipped on CPU; inspect the test
-summary for failures and skips.
+For CUDA, install the `cuda13` extra and set `JAX_PLATFORMS=cuda`. For the
+float32 release run, also set `JAX_DEFAULT_MATMUL_PRECISION=highest` so the
+factor operations and dense references use full float32 matrix products.
+GPU storage checks run only on CUDA.
 
 ## What is checked
 

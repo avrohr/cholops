@@ -165,8 +165,9 @@ the prefix QR factorizations or the solve with the old factor.
 Deletion extracts a retained factor $B$ and deleted columns $U$, then calls
 `chol_update(B, U)` to factor $BB^T + UU^T$. This also applies to deleting one
 variable. `chol_delete_one` uses the positive rank-one update and its derivative
-rule instead. Differentiation through the gathers scatters both input cotangents
-back to the original factor. There is no separate deletion derivative rule.
+rule instead. The extraction pullback combines both block cotangents in one
+inverse gather and inserts zeros for deleted rows. The numerical derivatives
+come from the update rule.
 The [block-update tests](../tests/test_rank_update.py) and
 [block-deletion tests](../tests/test_block_delete.py) compare
 values and both derivative modes with dense recomputation, including runtime

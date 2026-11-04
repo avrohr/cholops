@@ -45,8 +45,6 @@ def test_tensor_values_and_derivatives(n, rank):
         ),
         jax.grad(lambda L, U: jnp.sum(dense(L, U) * weights), (0, 1))(L, U),
     )
-    unused = jnp.where(jnp.triu(jnp.ones_like(L), 1) != 0, jnp.nan, L)
-    close(jax.jit(chol_update)(unused, U), dense(L, U))
 
 
 @pytest.mark.parametrize("rank", [1, 8])
@@ -148,6 +146,23 @@ def test_batched_updates_and_derivatives_with_a_shared_factor():
         ),
         jax.grad(lambda L, U: jnp.sin(reference(L, U)).sum(), (0, 1))(L, updates),
     )
+
+
+@pytest.mark.parametrize("n,rank", [(17, 1), (35, 3)])
+def test_cached_update_linearization_with_batched_directions_and_transpose(n, rank):
+    L, U = fixture(n, rank)
+    directions = (
+        jnp.tril(jnp.stack((jnp.sin(L), jnp.cos(L + 0.4)))) / n,
+        jnp.stack((jnp.cos(U), jnp.sin(U + 0.7))) / n,
+    )
+    _, push = jax.linearize(chol_update, L, U)
+    close(
+        jax.jit(jax.vmap(push))(*directions),
+        jax.vmap(lambda dL, dU: jax.jvp(dense, (L, U), (dL, dU))[1])(*directions),
+    )
+    weights = jnp.cos(jnp.arange(n * n, dtype=DTYPE).reshape(n, n)) / n
+    transpose = jax.linear_transpose(push, jnp.zeros_like(L), jnp.zeros_like(U))
+    close(jax.jit(transpose)(weights), jax.vjp(dense, L, U)[1](weights))
 
 
 @pytest.mark.parametrize("container", [Cholesky, PermutedCholesky])

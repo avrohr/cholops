@@ -40,6 +40,9 @@ class _TangentMap(hijax.HiPrim):
         jax.tree.map(accumulate, tangent_accums, gradients)
 
     def batch(self, axis_data, args, dims):
+        # jacfwd also visits shared primal values. Leave them unbatched.
+        if all(d is None for d in jax.tree.leaves(dims, is_leaf=lambda x: x is None)):
+            return self(*args), None
         residuals, tangents = args
         residual_dims, tangent_dims = dims
 

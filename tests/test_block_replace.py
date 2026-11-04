@@ -40,10 +40,11 @@ def evaluate(fn, args):
     directions = tuple(
         jnp.cos(jnp.arange(x.size, dtype=DTYPE)).reshape(x.shape) / 20 for x in args
     )
+    directions = (jnp.tril(directions[0]), *directions[1:])
     value, tangent = jax.jit(lambda *a: jax.jvp(fn, a, directions))(*args)
     G = jnp.sin(jnp.arange(value.size, dtype=DTYPE)).reshape(value.shape)
     gradients = jax.jit(lambda *a: jax.vjp(fn, *a)[1](G))(*args)
-    return value, tangent, gradients
+    return value, tangent, (jnp.tril(gradients[0]), *gradients[1:])
 
 
 @pytest.mark.parametrize(
@@ -62,7 +63,6 @@ def evaluate(fn, args):
 )
 def test_block_replacement_order_and_all_derivatives(n, start, r):
     L, K, C = fixture(n, start, r)
-    L = L.at[jnp.triu_indices(n, 1)].set(jnp.nan)
     actual = evaluate(lambda *a: chol_replace(a[0], start, *a[1:]), (L, K, C))
     expected = evaluate(lambda *a: reference(a[0], start, *a[1:]), (L, K, C))
     close(actual, expected)
@@ -88,6 +88,7 @@ def test_runtime_block_start_with_shared_inputs_and_checkpointing():
 
     def run(fn):
         directions = jax.tree.map(lambda x: jnp.cos(x) / 20, args)
+        directions = (jnp.tril(directions[0]), *directions[1:])
 
         @jax.jit
         def transformed(starts, *args):
@@ -96,7 +97,8 @@ def test_runtime_block_start_with_shared_inputs_and_checkpointing():
 
             value, tangent = jax.jvp(operation, args, directions)
             G = jnp.sin(jnp.arange(value.size, dtype=DTYPE)).reshape(value.shape)
-            return value, tangent, jax.vjp(operation, *args)[1](G)
+            gradients = jax.vjp(operation, *args)[1](G)
+            return value, tangent, (jnp.tril(gradients[0]), *gradients[1:])
 
         return transformed(starts, *args)
 

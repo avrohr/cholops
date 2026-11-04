@@ -40,7 +40,7 @@ quadratic = updated.quadratic(y)
 [numerical guide](numerics.md#factorization) for the rule and its limits.
 
 If you already have a lower factor `L`, use `Cholesky.from_factor(L)`. This wraps
-`L` without repeating the factorization and ignores its unused upper triangle.
+`L` without repeating the factorization. Its upper triangle must be zero.
 It does not change the backward rule of the function that originally produced
 `L`.
 
@@ -114,9 +114,11 @@ must be unchanged. It reuses the block factorization and needs one large
 triangular correction solve instead of solving the enlarged system from scratch.
 See the [growing GP example](../examples/growing_gp.py).
 
-`delete` and `delete_append` take an integer array of distinct indices, including
-`jnp.array([i])` for one variable. Indices refer to the input before deletion.
-`delete_one(i)` selects the specialized positive rank-one kernel instead.
+`delete` and `delete_append` take an integer array of distinct indices in increasing
+order, including `jnp.array([i])` for one variable. Indices refer to the input
+before deletion.
+For a single variable, prefer `delete_one(i)`. Its specialized rank-one kernel
+is usually faster than `delete(jnp.array([i]))`, especially on GPUs.
 For `replace`, `start` gives the first variable and `C.shape[0]` gives the block
 size. The rows of `K` describe the variables before the block, then those after
 it. Its columns and both axes of `C` follow the new block's order. Use block
@@ -142,7 +144,7 @@ only need to add `outer(u,u)`.
 
 ```python
 expanded = factor.append(jnp.array([[0.1], [0.2], [0.1]]), jnp.array([[1.0]]))
-reduced = expanded.delete(jnp.array([1]))  # Order is now [0, 2, appended].
+reduced = expanded.delete_one(1)  # Order is now [0, 2, appended].
 updated = factor.rank1_positive(jnp.array([0.1, -0.2, 0.1]))
 downdated = updated.rank1(jnp.array([0.1, -0.2, 0.1]), alpha=-0.5)
 shifted = downdated.diag_update(0, 0.1)

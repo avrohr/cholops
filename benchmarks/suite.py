@@ -9,6 +9,7 @@ from pathlib import Path
 CORE = (
     "append",
     "delete",
+    "delete_one",
     "rank1_positive",
     "replace",
     "delete_append",

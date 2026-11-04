@@ -139,11 +139,14 @@ uv run --locked python -m benchmarks.plot results/benchmarks/main \
   --output results/benchmarks/main/plots
 ```
 
-The default plan contains 720 cases: 648 for the six operation curves and
+The default plan contains 828 cases: 756 for seven operation curves and
 72 for the additional workloads below. It uses six sizes, two precisions,
-forward, reverse and JVP modes, and three process repeats. Output directories
-for plans and cases must be new. Use `--backend cpu` for a CPU campaign and omit
-the CUDA extra when installing its environment. Select `--sizes` and `--dtypes` for smaller runs.
+forward, reverse and JVP modes, and three process repeats. The seventh operation,
+`chol_delete_one`, uses the same inputs as `chol_delete` to compare the specialized
+single-variable path. Its results are not yet included in the figures above.
+Output directories for plans and cases must be new. Use `--backend cpu` for a CPU
+campaign and omit the CUDA extra when installing its environment. Select `--sizes`
+and `--dtypes` for smaller runs.
 
 Each case runs in a fresh process. After compilation and the first synchronized
 call, every implementation receives two warmups and fifteen timed calls.
@@ -162,20 +165,12 @@ substantially more memory and are outside the default plan.
 
 Raw campaigns belong in the gitignored **`results/benchmarks/`** directory at
 the repository root. Each campaign contains its plan, case directories, logs,
-timing samples, numerical diagnostics and source metadata. The existing H100
-campaign is retained locally as `results/benchmarks/release-reduced-9e03d8b/`.
+timing samples, numerical diagnostics and source metadata.
 
 The repository keeps the report in this README, selected figures in
 [`figures/`](figures/), and the compact `summary.csv` and `speedups.csv` tables.
 Raw measurements are not included in a fresh checkout. To regenerate plots,
 run a campaign or use a retained local campaign as the input to `benchmarks.plot`.
-For example, the saved H100 campaign can be rendered with:
-
-```sh
-uv run --locked python -m benchmarks.plot results/benchmarks/release-reduced-9e03d8b \
-  --output results/benchmarks/release-reduced-9e03d8b/plots
-```
-
 New runs measure the current checkout and record its source hashes and
 environment. The plotter checks that cases match the plan and use consistent
 hardware and JAX versions. Combining source versions requires a source audit

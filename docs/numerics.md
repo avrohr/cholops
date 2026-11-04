@@ -21,6 +21,10 @@ JAX's 64-bit mode before creating your arrays, and construct the inputs in
 float64. More precision helps, but there is still a limit to how
 ill-conditioned a matrix can be handled reliably.
 
+On NVIDIA GPUs, JAX can use reduced precision for matrix products with float32
+inputs. Set `JAX_DEFAULT_MATMUL_PRECISION=highest` before starting Python
+when you need full float32 precision for those products.
+
 Downdates subtract from a matrix and can make it cease to be positive definite.
 Appends and replacements can also produce an invalid matrix if the new entries
 are incompatible with the retained entries. Even before that boundary is

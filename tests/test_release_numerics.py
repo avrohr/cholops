@@ -66,12 +66,14 @@ def test_large_factor_and_both_derivative_modes(n, operation, position):
     tangents = jax.tree.map(
         lambda a: jnp.asarray(rng.normal(size=a.shape), DTYPE) * 0.01, args
     )
+    tangents = (jnp.tril(tangents[0]), *tangents[1:])
     m = n - (operation == "delete")
     G = jnp.asarray(rng.normal(size=(m, m)), DTYPE) / n
 
     def evaluate(fn, *a):
         value, tangent = jax.jvp(fn, a, tangents)
-        return value, tangent, jax.vjp(fn, *a)[1](G)
+        gradients = jax.vjp(fn, *a)[1](G)
+        return value, tangent, (jnp.tril(gradients[0]), *gradients[1:])
 
     actual = jax.jit(lambda *a: evaluate(candidate, *a))(*args)
     expected = jax.jit(lambda *a: evaluate(reference, *a))(*args)

@@ -237,8 +237,8 @@ def test_lower_constructor_with_batched_states_and_factor_gradients(container):
         jax.grad(lambda state: jnp.sum(lower(state) * G), allow_int=True)
     )(construct(L))
     close(lower(gradient), G)
-    _, tangent = jax.jvp(construct, (L,), (G,))
-    close(lower(tangent), G)
+    _, tangent = jax.jvp(construct, (L,), (jnp.tril(G),))
+    close(lower(tangent), jnp.tril(G))
 
 
 def test_factories_and_solve_reject_incompatible_inputs():
@@ -293,7 +293,7 @@ def test_delete_from_factor_matches_tensor_and_dense_gradient():
         reference,
     )
     results = [
-        jax.jit(jax.value_and_grad(lambda L: jnp.sum(fn(L) ** 3)))(L)
+        jax.jit(jax.value_and_grad(lambda L: jnp.sum(fn(jnp.tril(L)) ** 3)))(L)
         for fn in functions
     ]
     tol = 1e-11 if jax.config.x64_enabled else 2e-5

@@ -2,7 +2,6 @@
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 from ._autodiff import tangent_map
 
@@ -13,11 +12,6 @@ def _indices(indices, n):
         raise TypeError("indices must be a one-dimensional integer array")
     if indices.size > n:
         raise ValueError("cannot delete more than n variables")
-    indices = jnp.sort(indices)
-    if not isinstance(indices, jax.core.Tracer):
-        values = np.asarray(indices)
-        if np.any((values < 0) | (values >= n)) or np.any(np.diff(values) == 0):
-            raise ValueError("indices must be distinct and in [0,n)")
     return indices
 
 

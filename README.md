@@ -97,7 +97,7 @@ imported directly from `cholops`:
 | `cholesky` | Factor a positive-definite matrix. |
 | `chol_append` | Append a block of covariance rows and columns. |
 | `chol_delete` | Delete selected variables, preserving survivor order. |
-| `chol_delete_one` | Delete one variable using the specialized rank-one update. |
+| `chol_delete_one` | Preferred path for deleting a single variable, using the specialized rank-one update. |
 | `chol_delete_last` | Delete a trailing block by slicing the factor. |
 | `chol_replace` | Replace a consecutive block of variables at the same positions. |
 | `chol_delete_append` | Delete selected variables and append a new block last. |

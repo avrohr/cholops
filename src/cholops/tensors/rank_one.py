@@ -62,16 +62,13 @@ def chol_diag_update(L: Array, index: Array | int, delta: Array | float) -> Arra
     packing still depend on the full n. index is a scalar in [0, n).
 
     Supports jit, vmap, JVP and reverse-mode AD, including delta=0. No
-    derivative is defined for index. Invalid runtime indices give NaNs.
-    Invalid concrete Python indices raise.
+    derivative is defined for index. Only concrete Python indices are checked.
     """
     L = _factor(L)
     index = _index(index, L.shape[0])
     delta = _scalar(delta, L, "delta")
     u = jax.nn.one_hot(index, L.shape[0], dtype=L.dtype)
-    valid = (index >= 0) & (index < L.shape[0])
-    result = _rank1(L, u, delta, start=index)
-    return result * jnp.where(valid, 1, jnp.asarray(jnp.nan, dtype=result.dtype))
+    return _rank1(L, u, delta, start=index)
 
 
 @jax.custom_jvp

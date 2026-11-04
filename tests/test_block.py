@@ -32,7 +32,7 @@ def test_block_factor_jvp_and_vjp(operation, m, r):
     K = jnp.asarray(X[:m] @ new.T, DTYPE)
     C = jnp.asarray(new @ new.T + np.eye(r), DTYPE)
     args = L, K, C
-    dL = jnp.asarray(rng.normal(size=L.shape), DTYPE)
+    dL = jnp.tril(jnp.asarray(rng.normal(size=L.shape), DTYPE))
     dK = jnp.asarray(rng.normal(size=K.shape), DTYPE)
     dC = jnp.asarray(rng.normal(size=C.shape), DTYPE)
     # Asymmetric directions also test the symmetric-input convention for C.
@@ -46,23 +46,21 @@ def test_block_factor_jvp_and_vjp(operation, m, r):
         jax.jvp(candidate, args, (dL, dK, dC)), jax.jvp(reference, args, (dL, dK, dC))
     )
     gradients = jax.vjp(candidate, *args)[1](G)
-    close(gradients, jax.vjp(reference, *args)[1](G))
+    close((jnp.tril(gradients[0]), *gradients[1:]), jax.vjp(reference, *args)[1](G))
     np.testing.assert_array_equal(gradients[2], gradients[2].T)
 
 
-@pytest.mark.parametrize("operation", [chol_append, chol_replace_last])
-def test_unused_factor_entries_are_ignored(operation):
-    n = 4 if operation is chol_append else 6
+def test_replace_last_ignores_discarded_tail():
+    n = 6
     L = jnp.eye(n, dtype=DTYPE).at[4:, :].set(jnp.nan)
-    L = L.at[:, 4:].set(jnp.nan).at[jnp.triu_indices(n, 1)].set(jnp.nan)
+    L = L.at[:, 4:].set(jnp.nan)
     K = jnp.full((4, 2), 0.05, dtype=DTYPE)
     C = jnp.eye(2, dtype=DTYPE)
-    result = jax.jit(operation)(L, K, C)
+    result = jax.jit(chol_replace_last)(L, K, C)
     close(result, dense(L, K, C))
-    gradient = jax.jit(jax.grad(lambda L: operation(L, K, C).sum()))(L)
+    gradient = jax.jit(jax.grad(lambda L: chol_replace_last(L, K, C).sum()))(L)
     np.testing.assert_array_equal(gradient[4:], 0)
     np.testing.assert_array_equal(gradient[:, 4:], 0)
-    np.testing.assert_array_equal(gradient[jnp.triu_indices(n, 1)], 0)
 
 
 @pytest.mark.parametrize("operation", [chol_append, chol_replace_last])
@@ -71,7 +69,7 @@ def test_batched_blocks_and_shared_input_gradients(operation):
     m = 5 if operation is chol_append else 3
     K = jnp.full((m, 2), 0.1, dtype=DTYPE)
     C = jnp.eye(2, dtype=DTYPE)
-    candidate = jax.vmap(operation, (0, None, None))
+    candidate = jax.vmap(lambda L, K, C: operation(jnp.tril(L), K, C), (0, None, None))
     reference = jax.vmap(dense, (0, None, None))
     close(jax.jit(candidate)(L, K, C), jax.jit(reference)(L, K, C))
     close(

@@ -76,7 +76,7 @@ class Cholesky:
 
     @classmethod
     def from_factor(cls, factor: Array) -> "Cholesky":
-        """Wrap a real (n,n) lower factor, ignoring its unused upper triangle.
+        """Wrap a real (n,n) lower factor with zeros above the diagonal.
 
         Does not change the derivative of the function that produced factor.
         Supply a valid factor with a positive diagonal. Empty factors are supported.
@@ -140,14 +140,16 @@ class Cholesky:
     def delete(self, indices: Array) -> "Cholesky":
         """Delete indices:(r,), preserving survivor order and returning size n-r.
 
-        Indices must be distinct and in bounds. Their count is static, but
-        values may be traced. Traced values are not checked at runtime.
+        Indices must be increasing, distinct and in bounds. Their count is static,
+        but values may be traced and are not checked.
+        For a single variable, prefer delete_one(index).
         """
         return type(self)(chol_delete(self.factor, indices))
 
     def delete_one(self, index: Array | int) -> "Cholesky":
         """Delete one variable with the rank-one kernel, preserving survivor order.
 
+        Usually faster than delete(jnp.array([index])), especially on GPUs.
         index is an integer scalar in [0,n) and may be traced.
         """
         return type(self)(chol_delete_one(self.factor, index))
@@ -170,7 +172,7 @@ class Cholesky:
         """Delete indices:(r,) and append s variables, returning size n-r+s.
 
         K:(n-r,s) follows survivor order. C:(s,s) must be symmetric and the
-        target positive definite. Indices must be distinct and in bounds.
+        target positive definite. Indices must be increasing, distinct and in bounds.
         The result is ordered as survivors followed by the appended block.
         """
         return type(self)(chol_delete_append(self.factor, indices, K, C))

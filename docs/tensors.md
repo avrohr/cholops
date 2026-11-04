@@ -6,8 +6,7 @@ Tensor operations can be imported from `cholops` or `cholops.tensors`:
 from cholops.tensors import cholesky, chol_append, chol_replace
 ```
 
-All factors use conventional dense lower-triangular
-storage, and their unused upper triangle is ignored.
+All factors must use dense lower-triangular storage, with zeros above the diagonal.
 
 Let `A = L @ L.T`, where `L` has shape `(n,n)` and a positive diagonal.
 Continuous arrays share a real float32 or float64 dtype. Python scalar
@@ -40,12 +39,13 @@ size or ordering. Use `(n,1)` for one column. An empty `(n,0)` update leaves
 the factor unchanged. Positive updates preserve positive definiteness.
 
 `chol_delete` takes a one-dimensional integer array, including `[i]` for one variable.
-Indices must be distinct and refer to the input before deletion. Their order
-does not matter. An empty index array leaves the factor unchanged, and deleting
+Indices must be distinct, in increasing order, and refer to the input before
+deletion. An empty index array leaves the factor unchanged, and deleting
 all variables returns an empty factor. For `chol_delete_append`, rows of `K`
 follow survivor order and the appended block may have a different size.
-`chol_delete_one(L, i)` selects the specialized `chol_rank1_positive` kernel
-instead of the block update used by `chol_delete`. Its scalar index may be traced.
+For a single variable, prefer `chol_delete_one(L, i)`. Its specialized rank-one
+kernel is usually faster than the block update used by `chol_delete`, especially
+on GPUs. Its scalar index may be traced.
 
 Replacement takes the block's starting index, `start`, and infers its size from
 `C.shape[0]`. The rows of `K` describe the variables before the block, then those
@@ -57,7 +57,9 @@ Every operation supports `jit`, `vmap`, first-order `jvp`/`jacfwd`, and
 `vjp`/`grad`/`jacrev` on its documented domain. `jax.linearize` can cache a
 first-order tangent map for repeated directions. Higher-order derivatives,
 including Hessians and differentiating through gradients, have not been
-validated for general use. Indices and permutations have no continuous derivative.
+validated for general use. When differentiating with respect to a factor,
+perturb only its lower triangle and use only that triangle of its gradient.
+Indices and permutations have no continuous derivative.
 
 `chol_rank1_positive` applies one positive update from a vector. `chol_rank1`
 also accepts negative weights. Its recurrence can be slower than dense
@@ -93,7 +95,7 @@ Each operation starts from a valid lower Cholesky factor. The modified matrix mu
 
 The caller is responsible for choosing a valid modification. cholops does not add regularization or adjust the requested update automatically. If a modification produces NaNs or infinities, discard its result and keep the previous factor. Check the proposed entries before trying again. Finite output alone does not guarantee accuracy when the matrix is close to singular.
 
-Incorrect shapes and incompatible dtypes raise errors. Indices must also be within the matrix bounds. A concrete Python integer is checked, but an index passed through `jit` is not checked at runtime. Validate such indices before calling the operation.
+Incorrect shapes and incompatible dtypes raise errors. Indices must be within the matrix bounds, and deletion arrays must be sorted and distinct. Only concrete Python scalar indices are checked. The caller is responsible for supplying valid index arrays and traced indices.
 
 Append and delete change the factor’s size. JAX compiles separately for different shapes, so these operations cannot change the size of a factor carried through `lax.scan`. Use fixed-size replacement or delete-and-append with equal block sizes for such loops.
 

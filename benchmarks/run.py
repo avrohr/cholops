@@ -39,6 +39,7 @@ def arguments():
         choices=[
             "append",
             "delete",
+            "delete_one",
             "replace",
             "delete_append",
             "replace_last",

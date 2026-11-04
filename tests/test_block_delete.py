@@ -35,6 +35,7 @@ def fixture(n, m, s):
 
 def evaluate(fn, args):
     directions = jax.tree.map(lambda x: jnp.cos(x) / 20, args)
+    directions = (jnp.tril(directions[0]), *directions[1:])
     value, tangent = jax.jit(lambda *a: jax.jvp(fn, a, directions))(*args)
     G = jnp.sin(jnp.arange(value.size, dtype=DTYPE)).reshape(value.shape)
     gradients = jax.jit(jax.grad(lambda *a: jnp.sum(fn(*a) * G), range(len(args))))(
@@ -43,18 +44,18 @@ def evaluate(fn, args):
     close(
         jnp.vdot(G, tangent), sum(jnp.vdot(d, g) for d, g in zip(directions, gradients))
     )
-    return value, tangent, gradients
+    return value, tangent, (jnp.tril(gradients[0]), *gradients[1:])
 
 
 @pytest.mark.parametrize(
-    "deleted", [[], [0], [3], [5], [1, 2], [4, 1], [5, 4], list(range(6))]
+    "deleted", [[], [0], [3], [5], [1, 2], [1, 4], [4, 5], list(range(6))]
 )
 @pytest.mark.parametrize("s", [0, 3])
 def test_block_deletion_and_append_values_and_all_derivatives(deleted, s):
     keep = np.delete(np.arange(6), deleted)
     indices = jnp.asarray(deleted, dtype=jnp.int32)
     A, K, C = fixture(6, len(keep), s)
-    L = cholesky(A).at[jnp.triu_indices(6, 1)].set(jnp.nan)
+    L = cholesky(A)
 
     def actual(L, K, C):
         if s == 0:
@@ -66,9 +67,9 @@ def test_block_deletion_and_append_values_and_all_derivatives(deleted, s):
         A = A[keep[:, None], keep]
         return jnp.linalg.cholesky(jnp.block([[A, K], [K.T, C]]))
 
-    # Use finite tangents even though the ignored upper triangle contains NaNs.
     args = (L, K, C)
     directions = tuple(jnp.full(x.shape, 0.03, DTYPE) for x in args)
+    directions = (jnp.tril(directions[0]), *directions[1:])
     close(jax.jit(actual)(*args), reference(*args))
     close(
         jax.jit(lambda *a: jax.jvp(actual, a, directions))(*args),
@@ -77,15 +78,14 @@ def test_block_deletion_and_append_values_and_all_derivatives(deleted, s):
     size = len(keep) + s
     G = jnp.cos(jnp.arange(size * size, dtype=DTYPE)).reshape(size, size)
     got = jax.jit(lambda *a: jax.vjp(actual, *a)[1](G))(*args)
-    close(got, jax.vjp(reference, *args)[1](G))
-    np.testing.assert_array_equal(jnp.triu(got[0], 1), 0)
+    close((jnp.tril(got[0]), *got[1:]), jax.vjp(reference, *args)[1](G))
     np.testing.assert_array_equal(got[2], got[2].T)
 
 
 def test_runtime_block_indices_batched_with_shared_factor_and_inputs():
     A, K, C = fixture(6, 4, 2)
     L = cholesky(A)
-    indices = jnp.array([[0, 1], [4, 1], [5, 4]])
+    indices = jnp.array([[0, 1], [1, 4], [4, 5]])
     kept = jnp.array([[2, 3, 4, 5], [0, 2, 3, 5], [0, 1, 2, 3]])
 
     def actual(L, K, C):
@@ -98,6 +98,46 @@ def test_runtime_block_indices_batched_with_shared_factor_and_inputs():
         )(kept)
 
     close(evaluate(actual, (L, K, C)), evaluate(reference, (L, K, C)))
+
+
+@pytest.mark.parametrize("shared_indices", [False, True])
+def test_batched_block_deletion_cached_linearization(shared_indices):
+    A, _, _ = fixture(6, 4, 0)
+    L = cholesky(A)
+    factors = jnp.stack((L, L * 1.2, L * 0.9))
+    indices = jnp.array([[0, 1], [1, 4], [4, 5]])
+    kept = jnp.array([[2, 3, 4, 5], [0, 2, 3, 5], [0, 1, 2, 3]])
+    if shared_indices:
+        indices = indices[1]
+        kept = jnp.broadcast_to(kept[1], kept.shape)
+    directions = (
+        jnp.sin(jnp.arange(factors.size, dtype=DTYPE)).reshape(factors.shape) / 20
+    )
+    directions = jnp.tril(jnp.stack((directions, -2 * directions)))
+    G = jnp.cos(jnp.arange(48, dtype=DTYPE)).reshape(3, 4, 4)
+
+    def actual(factors, indices):
+        return jax.vmap(chol_delete, (0, None if shared_indices else 0))(
+            factors, indices
+        )
+
+    def reference(factors, indices):
+        def one(L, keep):
+            rows = jnp.tril(L)[keep]
+            return jnp.linalg.cholesky(rows @ rows.T)
+
+        return jax.vmap(one)(factors, kept)
+
+    def differentiated(fn, factors, indices):
+        def operation(L):
+            return fn(L, indices)
+
+        value, push = jax.linearize(operation, factors)
+        gradient = jax.vjp(operation, factors)[1](G)[0]
+        return value, jax.vmap(push)(directions), jnp.tril(gradient)
+
+    got = jax.jit(lambda L, i: differentiated(actual, L, i))(factors, indices)
+    close(got, differentiated(reference, factors, indices))
 
 
 def test_deletion_that_improves_conditioning():
@@ -123,7 +163,7 @@ def test_deletion_that_improves_conditioning():
 @pytest.mark.parametrize("cls", [Cholesky, PermutedCholesky])
 @pytest.mark.parametrize(
     "deleted,s",
-    [([3], 0), ([3], 1), ([4, 1], 3), ([5, 4], 0), ([], 2), (list(range(6)), 2)],
+    [([3], 0), ([3], 1), ([1, 4], 3), ([4, 5], 0), ([], 2), (list(range(6)), 2)],
 )
 def test_factor_block_modifications_and_consumer_derivatives(cls, deleted, s):
     keep = np.delete(np.arange(6), deleted)
@@ -185,12 +225,12 @@ def test_delete_last_ignores_discarded_entries_and_differentiates_the_slice(r):
     ):
         close(jax.jit(fn)(L), expected)
         close(
-            jax.jit(lambda L: jax.jvp(fn, (L,), (jnp.ones_like(L),)))(L)[1],
+            jax.jit(lambda L: jax.jvp(fn, (L,), (jnp.tril(jnp.ones_like(L)),)))(L)[1],
             jnp.tril(jnp.ones((m, m), DTYPE)),
         )
         gradient = jax.jit(jax.grad(lambda L: fn(L).sum()))(L)
         close(
-            gradient,
+            jnp.tril(gradient),
             jnp.zeros_like(L).at[:m, :m].set(jnp.tril(jnp.ones((m, m), DTYPE))),
         )
 
@@ -207,7 +247,7 @@ def test_empty_factor_delete_and_append():
 def test_block_delete_append_in_checkpointed_scan(implementation):
     X = jnp.sin(jnp.arange(18, dtype=DTYPE)).reshape(6, 3) / 3
     incoming = jnp.cos(jnp.arange(24, dtype=DTYPE)).reshape(4, 2, 3) / 3
-    deleted = jnp.array([[0, 1], [4, 1], [5, 4], [2, 0]])
+    deleted = jnp.array([[0, 1], [1, 4], [4, 5], [0, 2]])
     kept = jnp.array([[2, 3, 4, 5], [0, 2, 3, 5], [0, 1, 2, 3], [1, 3, 4, 5]])
     rhs = jnp.linspace(-0.4, 0.7, 6, dtype=DTYPE)
 
@@ -272,7 +312,7 @@ def test_block_deletion_of_dense_factor_with_few_or_many_survivors(r):
     rng = np.random.default_rng(85)
     X = jnp.asarray(rng.normal(size=(n, n)) / np.sqrt(n), DTYPE)
     L = cholesky(jnp.eye(n, dtype=DTYPE) + X @ X.T)
-    deleted = rng.choice(n, r, replace=False)
+    deleted = np.sort(rng.choice(n, r, replace=False))
     keep = np.delete(np.arange(n), deleted)
     indices = jnp.asarray(deleted, jnp.int32)
 

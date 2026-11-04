@@ -18,6 +18,7 @@ from ..tensors import (
 )
 from ..tensors._indexing import _indices, _keep, _keep_many
 from ..tensors._validation import _blocks, _factor, _index, _replacement, _vector
+from ..tensors.append import _append_block
 from ..tensors.update import _update_columns, _update_upper
 from ._append import _append_solution
 from ._consumers import _logdet, _matrix_rhs, _quadratic, _rhs, _solve, _whiten
@@ -136,8 +137,9 @@ class PermutedCholesky:
     def delete(self, indices: Array) -> "PermutedCholesky":
         """Delete logical indices:(r,), preserving survivor order.
 
-        Indices must be distinct and in bounds. Remaining logical indices
+        Indices must be increasing, distinct and in bounds. Remaining logical indices
         are renumbered from zero. The result has size n-r.
+        For a single variable, prefer delete_one(index).
         """
         n = self.physical_factor.shape[0]
         indices = _indices(indices, n)
@@ -150,6 +152,7 @@ class PermutedCholesky:
     def delete_one(self, index: Array | int) -> "PermutedCholesky":
         """Delete one logical variable with the rank-one kernel.
 
+        Usually faster than delete(jnp.array([index])), especially on GPUs.
         index is an integer scalar in [0,n) and may be traced. Survivor order
         is preserved, with remaining logical indices renumbered from zero.
         """
@@ -181,7 +184,8 @@ class PermutedCholesky:
         # Locate the physical survivors in K's compact logical row order.
         compact = survivors - r * (survivors >= start)
         if r == 1:
-            result = chol_append(chol_delete_one(L, physical[0]), K[compact], C)
+            # Block shapes are checked above, and deletion returns a lower factor.
+            result = _append_block(chol_delete_one(L, physical[0]), K[compact], C)
         else:
             result = chol_delete_append(L, physical, K[compact], C)
         order = jnp.concatenate((survivors, indices))
@@ -193,7 +197,8 @@ class PermutedCholesky:
         """Delete logical indices:(r,) and append a block of s variables.
 
         K:(n-r,s) follows logical survivor order. C:(s,s) must be symmetric
-        and the target positive definite. Indices must be distinct and in bounds.
+        and the target positive definite. Indices must be increasing, distinct
+        and in bounds.
         The result has size n-r+s, in survivor order followed by the new block.
         """
         return self.delete(indices).append(K, C)

@@ -29,8 +29,8 @@ def test_campaign_coverage_and_unique_cases():
     curves = [c for c in campaign if c.get("operation") in CORE]
     signed = [c for c in campaign if c.get("operation") in ("diag_update", "rank1")]
     sequences = [c for c in campaign if c["workload"] == "sequences"]
-    assert len(campaign) == 720
-    assert len(curves) == 648
+    assert len(campaign) == 828
+    assert len(curves) == 756
     assert len(signed) == len(sequences) == 36
     assert {c["n"] for c in signed} == {4096}
     assert {c["n"] for c in sequences} == {2048, 8192}
@@ -48,13 +48,15 @@ def test_campaign_coverage_and_unique_cases():
             + (["naive"] if case["operation"] == "replace" else [])
         )
         assert case["implementations"] == expected
+        if case.get("operation") == "delete_one":
+            assert {**case, "operation": "delete"} in campaign
     keys = [json.dumps(c, sort_keys=True) for c in campaign]
     assert len(set(keys)) == len(keys)
 
 
 def test_campaign_size_selection():
     campaign = list(cases([512], ["float32"], 1))
-    assert len(campaign) == 18
+    assert len(campaign) == 21
     assert {c["operation"] for c in campaign} == set(CORE)
     assert all(c["n"] == 512 and c["dtype"] == "float32" for c in campaign)
 
@@ -143,7 +145,7 @@ main()
             "--workload",
             "operations",
             "--operation",
-            "append",
+            "delete_one",
             "--mode",
             "forward",
             "--implementations",

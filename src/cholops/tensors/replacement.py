@@ -244,8 +244,8 @@ def chol_replace_last(L: Array, K: Array, C: Array) -> Array:
     K has shape (n-r,r), C has shape (r,r); r is inferred from C's static shape.
     The target is [[A, K], [K.T, C]], with A = L[:n-r,:n-r] @ L[:n-r,:n-r].T.
     C must be symmetric and the target positive definite. All inputs share a
-    real float32/64 dtype. Only L's retained leading lower triangle is used;
-    the discarded tail and unused upper triangle may contain arbitrary values.
+    real float32/64 dtype. The retained leading block of L must be lower triangular.
+    The discarded tail may contain arbitrary values.
 
     Returns an (n,n) lower factor, preserving the leading block exactly. r=0
     returns the lower input, and r=n factorizes C. Supports jit, vmap, JVP and

@@ -51,9 +51,9 @@ def test_whiten_coordinates_and_covariance_reductions(container, compiled):
 def test_whiten_batched_forward_and_reverse_derivatives(container):
     L = jnp.array(
         [
-            [1.4, 0.2, 0.3, 0.1],
-            [0.2, 1.2, 0.1, 0.3],
-            [-0.1, 0.3, 1.5, 0.2],
+            [1.4, 0.0, 0.0, 0.0],
+            [0.2, 1.2, 0.0, 0.0],
+            [-0.1, 0.3, 1.5, 0.0],
             [0.4, -0.2, 0.1, 1.3],
         ],
         dtype=DTYPE,
@@ -68,14 +68,14 @@ def test_whiten_batched_forward_and_reverse_derivatives(container):
         return wrap(container, L, order).whiten(B)
 
     def reference(L, B, order):
-        # General dense solve also checks that the unused upper triangle and
-        # its tangent do not affect whitening.
         return jnp.linalg.solve(jnp.tril(L), B[order])
 
     def evaluate(fn):
         def derivatives(L, B, order):
             forward = jax.jvp(
-                lambda L, B: fn(L, B, order), (L, B), (jnp.cos(L) / 20, B / 10)
+                lambda L, B: fn(L, B, order),
+                (L, B),
+                (jnp.tril(jnp.cos(L)) / 20, B / 10),
             )
             reverse = jax.grad(
                 lambda L, B: jnp.sum(weights * fn(L, B, order)), argnums=(0, 1)

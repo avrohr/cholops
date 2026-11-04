@@ -81,8 +81,8 @@ class PaddedCholesky:
     def from_factor(cls, L: Array, *, active: Array) -> "PaddedCholesky":
         """Wrap a padded lower factor, initially in logical order.
 
-        Inactive slots must be independent unit entries. The unused upper
-        triangle is ignored. This does not repeat factorization.
+        Inactive slots must be independent unit entries. L must have zeros
+        above the diagonal. This does not repeat factorization.
         """
         factor = PermutedCholesky.from_factor(L)
         return cls(factor, _activity(active, factor.physical_factor.shape[0]))

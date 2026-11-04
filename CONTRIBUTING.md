@@ -34,7 +34,8 @@ references and benchmark comparisons:
 ```sh
 JAX_PLATFORMS=cpu JAX_ENABLE_X64=0 uv run --locked python -m pytest --full
 JAX_PLATFORMS=cpu JAX_ENABLE_X64=1 uv run --locked python -m pytest --full
-JAX_PLATFORMS=cuda JAX_ENABLE_X64=0 uv run --locked python -m pytest --full --require-gpu
+JAX_PLATFORMS=cuda JAX_ENABLE_X64=0 JAX_DEFAULT_MATMUL_PRECISION=highest \
+  uv run --locked python -m pytest --full --require-gpu
 JAX_PLATFORMS=cuda JAX_ENABLE_X64=1 uv run --locked python -m pytest --full --require-gpu
 ```
 

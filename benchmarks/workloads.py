@@ -24,6 +24,7 @@ from cholops import (
     chol_append,
     chol_delete,
     chol_delete_append,
+    chol_delete_one,
     chol_diag_update,
     chol_rank1,
     chol_rank1_positive,
@@ -35,6 +36,7 @@ from cholops import (
 OPERATIONS = (
     "append",
     "delete",
+    "delete_one",
     "replace",
     "delete_append",
     "replace_last",
@@ -82,17 +84,20 @@ def _direction(x):
     )
 
 
-def _transformed(fn, args, mode, argnums, loss):
+def _transformed(fn, args, mode, argnums, loss, *, factor_input=False):
     """Select the primal, value-and-gradient, or directional-JVP computation.
 
     argnums identifies continuous inputs. Indices remain runtime arguments but
-    are held fixed during differentiation.
+    are held fixed during differentiation. factor_input marks the first continuous
+    input as a lower-triangular factor.
     """
     if mode == "forward":
         return fn, args
     if mode == "full_vjp":
         return jax.value_and_grad(lambda *a: loss(fn(*a)), argnums=argnums), args
     tangents = tuple(jax.tree.map(_direction, args[i]) for i in argnums)
+    if factor_input:
+        tangents = (jnp.tril(tangents[0]), *tangents[1:])
 
     def push(*inputs):
         primals, directions = inputs[:-1], inputs[-1]
@@ -128,7 +133,7 @@ def _add_operation_phases(
 ):
     for mode in modes:
         oracle, oracle_args = _transformed(
-            reference, raw_args, mode, argnums, _factor_loss
+            reference, raw_args, mode, argnums, _factor_loss, factor_input=True
         )
         expected = jax.jit(oracle)(*oracle_args)
         jax.block_until_ready(expected)
@@ -138,14 +143,30 @@ def _add_operation_phases(
             if group == "replace":
                 functions["naive"] = lambda L, p, i: naive_replace(L, i, *p)
             fn, args = _transformed(
-                functions[name], raw_args, mode, argnums, _factor_loss
+                functions[name],
+                raw_args,
+                mode,
+                argnums,
+                _factor_loss,
+                factor_input=True,
             )
-            phases[f"{name}_{label}"] = _phase(fn, args, expected, label, name)
+            phase = _phase(fn, args, expected, label, name)
+            if mode == "full_vjp":
+
+                def validate(actual, expected=expected):
+                    # Compare independent factor entries outside the timed call.
+                    value, (dL, *rest) = actual
+                    return accuracy_record((value, (jnp.tril(dL), *rest)), expected)
+
+                phase["validate"] = validate
+            phases[f"{name}_{label}"] = phase
 
 
 def _operation(name, L, params, index):
     if name == "delete":
         return chol_delete(L, index[None])
+    if name == "delete_one":
+        return chol_delete_one(L, index)
     if name in ("replace", "delete_append"):
         operation = chol_replace if name == "replace" else chol_delete_append
         selected = index if name == "replace" else index[None]
@@ -170,7 +191,7 @@ def _reference(name, L, params, index):
     if name == "append":
         K, C = params
         A = jnp.block([[A, K], [K.T, (C + C.T) / 2]])
-    elif name == "delete":
+    elif name in ("delete", "delete_one"):
         A = A[keep[:, None], keep[None, :]]
     elif name == "delete_append":
         A = replace_matrix(A, index, *params)
@@ -219,6 +240,7 @@ def operations(
     params = {
         "append": (k[:, None], c.reshape(1, 1)),
         "delete": (),
+        "delete_one": (),
         "replace": (k[keep_indices(n, index)], c),
         "delete_append": (k[keep_indices(n, index)], c),
         "replace_last": (
