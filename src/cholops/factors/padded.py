@@ -136,13 +136,10 @@ class PaddedCholesky:
         projected = self._permuted.whiten(_mask_rows(K, self.active))
         trailing = cholesky(C - projected.T @ projected)
         physical = self.inverse_order[indices]
-        selected = jnp.zeros(n, dtype=bool).at[physical].set(True)
         positions = jnp.arange(n)
-        destinations = jnp.where(selected, n, positions - jnp.cumsum(selected))
-        permutation = (
-            jnp.zeros_like(positions).at[destinations].set(positions, mode="drop")
-        )
-        permutation = permutation.at[-r:].set(physical)
+        # Unroll the index search to avoid a GPU launch for every search step.
+        retained = _keep_many(n, jnp.sort(physical), unroll=True)
+        permutation = jnp.concatenate((retained, physical))
 
         # Move only the selected independent entries, keeping all survivors in
         # order. Separate gathers avoid a joint two-axis gather on CPU.
@@ -191,10 +188,13 @@ class PaddedCholesky:
             return updated, _mask_rows(solution, self.active)
         K = _mask_rows(jnp.asarray(K), self.active)
         solution = _mask_rows(solution, self.active)
-        rhs = _mask_rows(rhs, updated.active)
+        # Only newly activated RHS entries are consumed, so inactive entries
+        # never enter the calculation.
         beta = _solve(trailing, rhs[indices] - K.T @ solution)
         correction = solve_triangular(L, projected @ beta, lower=True, trans="T")
-        coefficients = solution.at[self.order].add(-correction)
+        # The correction is in factor order. Gather its inverse permutation
+        # instead of scattering additions into the logical solution.
+        coefficients = solution - correction[self.inverse_order]
         coefficients = coefficients.at[indices].set(beta)
         return updated, _mask_rows(coefficients, updated.active)
 

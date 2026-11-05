@@ -15,13 +15,14 @@ def _indices(indices, n):
     return indices
 
 
-def _keep_many(n, indices):
+def _keep_many(n, indices, *, unroll=False):
     """Map survivor positions to original indices, given sorted deletions."""
     positions = jnp.arange(n - indices.size)
     # Earlier deletions shift each gap left into survivor coordinates.
     offsets = indices - jnp.arange(indices.size)
     # Count gaps at or before each position to recover its original index.
-    return positions + jnp.searchsorted(offsets, positions, side="right")
+    method = "scan_unrolled" if unroll else "scan"
+    return positions + jnp.searchsorted(offsets, positions, side="right", method=method)
 
 
 def _keep(n, index):

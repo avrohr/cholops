@@ -177,6 +177,38 @@ def test_activation_batched_runtime_indices_and_activity():
     close(jax.jvp(candidate, (X,), (X / 5,)), jax.jvp(reference, (X,), (X / 5,)))
 
 
+def test_activation_ignores_inactive_supplied_solution_and_its_derivatives():
+    active = jnp.array([True, False, True, False, False, True])
+    indices = jnp.array([4, 1])
+    X = jnp.sin(jnp.arange(18, dtype=DTYPE)).reshape(6, 3) / 3
+    A = covariance(X, active)
+    factor = managed(A, active, True)
+    K = jnp.where(active[:, None], jnp.full((6, 2), 0.03, DTYPE), jnp.nan)
+    C = jnp.array([[1.4, 0.2], [0.2, 1.2]], DTYPE)
+    updated = replaced(A, active, indices, K, C)
+    new_active = active.at[indices].set(True)
+    solution = jnp.array([0.1, jnp.nan, -0.2, jnp.inf, -jnp.inf, 0.3], DTYPE)
+    weights = jnp.cos(jnp.arange(6, dtype=DTYPE))
+
+    def objective(solution, dense=False):
+        # Vary the old RHS with the supplied coefficients to preserve the
+        # old-system solution contract while checking their derivatives.
+        rhs = (A @ jnp.where(active, solution, 0)).at[indices].set(0.4)
+        rhs = jnp.where(new_active, rhs, jnp.nan)
+        if dense:
+            result = jnp.linalg.solve(updated, jnp.where(new_active, rhs, 0))
+        else:
+            _, result = factor.activate_solve(indices, K, C, solution=solution, rhs=rhs)
+        return weights @ result
+
+    actual = jax.jit(jax.value_and_grad(objective))(solution)
+    expected = jax.jit(jax.value_and_grad(lambda x: objective(x, True)))(solution)
+    close(actual, expected)
+    np.testing.assert_array_equal(actual[1][~active], 0)
+    direction = jnp.ones_like(solution)
+    close(jax.jvp(objective, (solution,), (direction,))[1], actual[1].sum())
+
+
 @pytest.mark.parametrize("n,r", [(0, 0), (5, 0), (5, 1), (5, 5)])
 def test_empty_single_and_full_capacity_activation_and_deactivation(n, r):
     active = jnp.zeros(n, bool)
