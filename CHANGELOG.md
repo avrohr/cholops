@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Reduce compilation overhead for `PaddedCholesky.activate` and `activate_solve`.
+
 ## 0.2.0
 
 - Append and replace blocks of variables, delete multiple variables by index,

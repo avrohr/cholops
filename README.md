@@ -124,8 +124,8 @@ speedups after compilation:
 
 | Precision | Forward: vs recompute / naive replacement | Value + gradient: vs recompute / naive replacement |
 | --- | ---: | ---: |
-| float32 | 16.4× / 21.8× | 25.3× / 33.4× |
-| float64 | 11.1× / 16.3× | 17.6× / 25.4× |
+| float32 | 16.6× / 23.1× | 25.8× / 34.0× |
+| float64 | 11.2× / 18.0× | 17.8× / 26.6× |
 
 [Recomputation](https://github.com/avrohr/cholops/blob/main/benchmarks/_recompute.py) forms `L @ L.T`, changes its row/column
 and calls native JAX Cholesky. The [naive replacement](https://github.com/avrohr/cholops/blob/main/benchmarks/_naive.py)
